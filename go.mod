@@ -1,3 +1,3 @@
-module urp-go-project
+module UDPAssignmentFun
 
 go 1.22
