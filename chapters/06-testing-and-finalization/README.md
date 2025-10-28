@@ -18,12 +18,73 @@ To solve this, we need a **Packet Loss & Corruption (PLC)** simulator. This is a
 
 **Design Sketch (Workshop on Paper):**
 
-How would you design a PLC module?
+The logic for the PLC "gremlin" can be visualized as a simple flowchart for every packet it processes.
 
-1.  **Interface:** It needs to intercept every packet. A good design would be a `plc.send(packet)` function that our protocol logic calls instead of `socket.send(packet)`.
-2.  **Loss Logic:** Inside `plc.send()`, how would you decide whether to drop a packet? (Hint: You'll need a random number generator and the loss probability).
-3.  **Corruption Logic:** If you decide not to drop the packet, how would you corrupt it? What's a simple way to alter the byte array of a packet to ensure the checksum will fail? (Remember not to re-calculate the checksum!).
-4.  **Directionality:** Network problems can happen in both directions. How would you configure your PLC to handle different loss probabilities for data packets (forward path) and ACK packets (reverse path)?
+```mermaid
+flowchart TD
+    A[Packet Enters PLC] --> B{Generate random number};
+    B --> C{rand < loss_prob?};
+    C -- Yes --> D[Drop Packet & Log];
+    C -- No --> E{rand < corruption_prob?};
+    E -- Yes --> F[Corrupt Packet & Log];
+    F --> G[Send Packet];
+    E -- No --> G;
+    D --> H[End];
+    G --> H;
+```
+
+Here is the pseudocode for the PLC module:
+
+```pseudocode
+class PLC_Module:
+  // Initialized with probabilities from command line
+  property forward_loss_prob
+  property forward_corrupt_prob
+  
+  function send(packet):
+    // 1. Decide whether to drop
+    if random_float(0, 1) < forward_loss_prob:
+      log("Packet dropped", packet.SeqNum)
+      return // Do nothing
+      
+    // 2. Decide whether to corrupt
+    if random_float(0, 1) < forward_corrupt_prob:
+      log("Packet corrupted", packet.SeqNum)
+      corrupted_packet = corrupt(packet)
+      raw_socket_send(corrupted_packet)
+      return
+      
+    // 3. If neither, send normally
+    log("Packet sent ok", packet.SeqNum)
+    raw_socket_send(packet)
+
+function corrupt(packet):
+  // Create a mutable copy of the packet's bytes
+  packet_bytes = packet.pack()
+  
+  // Pick a random byte in the payload to flip
+  if length(packet_bytes) > HEADER_LENGTH:
+    payload_offset = random_integer(HEADER_LENGTH, length(packet_bytes) - 1)
+    
+    // Flip a single bit
+    packet_bytes[payload_offset] = packet_bytes[payload_offset] XOR 1
+    
+  return packet_bytes
+```
+
+And for the final statistics, you would add a method to your logger.
+
+**Logger Module:**
+```pseudocode
+class Logger:
+  // ... existing logging methods
+  
+  function log_final_stats(stats_dictionary):
+    write_to_file("\n--- FINAL STATS ---")
+    for key, value in stats_dictionary:
+      write_to_file(key + ": " + value)
+    write_to_file("-------------------")
+```
 
 ---
 

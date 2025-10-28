@@ -21,18 +21,100 @@ Our Stop-and-Wait protocol works perfectly, but only on a perfect network. The m
 
 **Design Sketch (Workshop on Paper):**
 
-Let's integrate this into our protocol logic.
+A sequence diagram helps visualize how a timeout saves the connection when a packet is lost.
 
-1.  **Sender's Logic (Timeout):**
-    *   The `sendData` loop needs to be modified. Instead of just waiting for an ACK, it needs to handle two possible events: `ACK_Received` or `Timeout_Expired`.
-    *   How would you structure this loop? (Hint: Many languages have a `select` statement or similar construct for handling multiple events).
-    *   If a timeout occurs, what should the sender do? (Resend the *last* packet).
-    *   If an ACK is received, what should happen to the timer?
+```mermaid
+sequenceDiagram
+    participant Sender
+    participant Receiver
 
-2.  **Receiver's Logic (Validation & Duplicates):**
-    *   What is the *very first thing* the receiver should do with any incoming packet, before checking flags or sequence numbers?
-    *   If a packet is corrupt, what happens? (Crucially, what does it *not* do?).
-    *   If a data packet arrives with `SeqNum` *less than* `expected_seq_num`, what does that signify? What should the receiver do with the data, and what ACK should it send?
+    Sender->>Receiver: DATA (SeqNum=N)
+    Note right of Sender: Starts Timer (RTO)
+    
+    Note over Receiver: Packet is lost in network
+    
+    loop After RTO duration
+        Note right of Sender: Timeout Expired!
+        Sender->>Receiver: DATA (SeqNum=N) [Retransmission]
+        Note right of Sender: Restarts Timer (RTO)
+    end
+
+    Receiver->>Sender: ACK (AckNum=N + len)
+    Note right of Sender: ACK Received, Stops Timer
+```
+
+Here is the pseudocode for the robust logic:
+
+**Sender Logic (with Timeouts):**
+```pseudocode
+function send_data_robustly(file_bytes):
+  offset = 0
+  current_seq_num = get_initial_seq_num()
+  
+  while offset < length(file_bytes):
+    payload = file_bytes[offset : offset + MSS]
+    segment = create_segment(flags=DATA, SeqNum=current_seq_num, Payload=payload)
+    
+    // Retry loop for the current segment
+    is_acked = false
+    for i from 1 to MAX_RETRIES:
+      send(segment)
+      start_timer(RTO)
+      
+      // Wait for an event: either an ACK or a timeout
+      event = wait_for_event() 
+      
+      if event is ACK:
+        stop_timer()
+        expected_ack_num = current_seq_num + length(payload)
+        if event.AckNum == expected_ack_num:
+          // Correct ACK received!
+          is_acked = true
+          break // Exit retry loop
+        // else: It's a duplicate/old ACK, ignore and let timer run out or receive correct one
+          
+      if event is TIMEOUT:
+        log("Timeout for segment", current_seq_num)
+        // Continue to next retry iteration
+        
+    if not is_acked:
+      return FAILURE "Max retries exceeded for segment"
+      
+    // Advance to next chunk
+    offset = offset + length(payload)
+    current_seq_num = expected_ack_num
+```
+
+**Receiver Logic (with Validation):**
+```pseudocode
+function main_receive_loop():
+  while true:
+    segment = receive()
+    
+    // 1. Checksum validation is the first gate
+    if not validate_checksum(segment):
+      log("Corrupt packet received")
+      continue // Silently discard
+      
+    // The rest of the logic from the previous chapter
+    if get_state() is ESTABLISHED and segment.has_flag(DATA):
+      // 2. Duplicate check
+      if segment.SeqNum < expected_seq_num:
+        log("Duplicate packet received")
+        // Re-send the last ACK to help the sender
+        ack_segment = create_segment(flags=ACK, AckNum=expected_seq_num)
+        send(ack_segment)
+        continue // Discard data and process next packet
+        
+      // 3. In-order check
+      if segment.SeqNum == expected_seq_num:
+        write_to_file(segment.Payload)
+        expected_seq_num = expected_seq_num + length(segment.Payload)
+        
+      // Always send cumulative ACK
+      ack_segment = create_segment(flags=ACK, AckNum=expected_seq_num)
+      send(ack_segment)
+```
 
 ---
 

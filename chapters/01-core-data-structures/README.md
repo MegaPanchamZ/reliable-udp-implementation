@@ -24,18 +24,82 @@ To fix the problems, our header needs two key fields:
 
 **Design Sketch (Workshop on Paper):**
 
-Let's think about how to represent this in code. We need a way to handle the `Segment` itself and a separate utility for the checksum math.
+Let's think about how to represent this in code. A `Segment` can be visualized as a class or struct with specific fields and methods.
 
-1.  **The `Segment` Module:** How would you structure a class or a set of functions to handle this? You'll need to:
-    *   Store the `SeqNum`, `Checksum`, and `Payload`.
-    *   Have a function to `pack()` this data into a single stream of bytes to be sent over the network.
-    *   Have a function to `unpack()` a stream of bytes from the network back into your structure.
+```mermaid
+classDiagram
+  class URPSegment {
+    +uint16 SeqNum
+    +uint16 AckNum
+    +uint8 Flags
+    +uint8 Checksum
+    +byte[] Payload
+    +pack() byte[]
+    +unpack(byte[]) URPSegment
+  }
+```
 
-2.  **The `Checksum` Module:** This should be a simple helper.
-    *   It needs a function to `compute()` the checksum from a chunk of data.
-    *   It needs another function to `validate()` that a chunk of data matches its checksum.
+Here is some pseudocode to guide your thinking:
 
-Sketch this out on paper. What would the function signatures look like? What data types would you use?
+**Checksum Logic:**
+```pseudocode
+function compute_checksum(data_bytes):
+  sum = 0
+  for each byte in data_bytes:
+    sum = sum + byte
+  
+  // Return the lower 8 bits of the sum
+  return sum MOD 256
+
+function validate_checksum(segment_bytes):
+  // Temporarily store the checksum from the packet
+  received_checksum = segment_bytes[5]
+  
+  // Zero out the checksum field to calculate
+  segment_bytes[5] = 0
+  
+  // Calculate the checksum on the rest of the packet
+  calculated_checksum = compute_checksum(segment_bytes)
+  
+  // The packet is valid if they match
+  return received_checksum == calculated_checksum
+```
+
+**Segment Packing & Unpacking:**
+```pseudocode
+function pack(segment_object):
+  // Create a byte array for the header (6 bytes)
+  header_bytes = new byte[6]
+  
+  // Convert 16-bit numbers to 2 bytes (Big Endian)
+  write_uint16_big_endian(header_bytes, 0, segment_object.SeqNum)
+  write_uint16_big_endian(header_bytes, 2, segment_object.AckNum)
+  header_bytes[4] = segment_object.Flags
+  
+  // Checksum is calculated on the header (without checksum field) + payload
+  temp_data = header_bytes[0:4] + segment_object.Payload
+  checksum = compute_checksum(temp_data)
+  header_bytes[5] = checksum
+  
+  // Combine header and payload
+  return header_bytes + segment_object.Payload
+
+function unpack(raw_bytes):
+  if length(raw_bytes) < 6:
+    return error "Packet too small"
+  
+  // Create a new segment object
+  segment_object = new URPSegment()
+  
+  // Read the fields from the byte array
+  segment_object.SeqNum = read_uint16_big_endian(raw_bytes, 0)
+  segment_object.AckNum = read_uint16_big_endian(raw_bytes, 2)
+  segment_object.Flags = raw_bytes[4]
+  segment_object.Checksum = raw_bytes[5]
+  segment_object.Payload = raw_bytes[6:end]
+  
+  return segment_object
+```
 
 ---
 

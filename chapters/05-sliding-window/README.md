@@ -26,18 +26,120 @@ To support this, the receiver must now be able to **buffer** packets that arrive
 
 **Design Sketch (Workshop on Paper):**
 
-This is a major upgrade to our `Sender` and `Receiver` logic.
+The Fast Retransmit optimization is a key benefit of the sliding window. This diagram shows how it works.
 
-1.  **Sender's Logic:**
-    *   The sender needs a new data structure: a **retransmission buffer**. This will store a copy of every segment that has been sent but not yet ACKed. Why is this buffer necessary?
-    *   The main `sendData` loop will change. Instead of `send-wait-send-wait`, it will be a continuous loop that tries to fill the window.
-    *   The timer logic also changes. The sender only needs **one timer** running at any time, for the oldest unacknowledged segment (`send_base`). Why not a timer for every packet in the window?
+```mermaid
+sequenceDiagram
+    participant Sender
+    participant Receiver
 
-2.  **Receiver's Logic:**
-    *   The receiver needs a **receive buffer**. This will store out-of-order segments.
-    *   When a segment with `SeqNum > expected_seq_num` arrives, what does the receiver do?
-    *   When the missing segment (`SeqNum == expected_seq_num`) finally arrives, what two things happen? (One with the file, one with the buffer).
-    *   The receiver's ACKs must be **cumulative**. It always ACKs the `expected_seq_num`. What does this tell the sender?
+    Sender->>Receiver: DATA (SeqNum=10)
+    Sender->>Receiver: DATA (SeqNum=11)
+    Sender->>Receiver: DATA (SeqNum=12)
+    Sender->>Receiver: DATA (SeqNum=13)
+
+    Note over Receiver: Packet 11 is lost!
+
+    Receiver->>Sender: ACK (AckNum=11)
+    Note left of Receiver: Received 10, waiting for 11
+
+    Note over Receiver: Receives 12 (out of order)
+    Receiver->>Sender: ACK (AckNum=11) [Duplicate 1]
+    
+    Note over Receiver: Receives 13 (out of order)
+    Receiver->>Sender: ACK (AckNum=11) [Duplicate 2]
+
+    Note right of Sender: 3rd ACK for 11 arrives!
+    Note right of Sender: Fast Retransmit Triggered!
+    Sender->>Receiver: DATA (SeqNum=11) [Retransmission]
+```
+
+Here is the pseudocode for the advanced protocol logic:
+
+**Sender Logic (Sliding Window):**
+```pseudocode
+function send_data_sliding_window(file_bytes):
+  // Initialize window variables
+  send_base = initial_seq_num
+  next_seq_num = initial_seq_num
+  
+  // Data structures for managing the window
+  retransmission_buffer = new map() // Stores sent, un-ACKed segments
+  dup_ack_count = 0
+  
+  while send_base < length(file_bytes):
+    // 1. Fill the window with new data
+    while (next_seq_num - send_base) < MAX_WINDOW_SIZE and next_seq_num < length(file_bytes):
+      payload = read_chunk(file_bytes, next_seq_num)
+      segment = create_segment(SeqNum=next_seq_num, Payload=payload)
+      retransmission_buffer.add(segment)
+      send(segment)
+      next_seq_num = next_seq_num + length(payload)
+      
+      // Start the timer only for the first packet in the window
+      if not is_timer_running():
+        start_timer(RTO)
+        
+    // 2. Wait for an event (ACK or Timeout)
+    event = wait_for_event()
+    
+    if event is ACK:
+      if event.AckNum > send_base:
+        // This is a good, cumulative ACK. Slide the window.
+        send_base = event.AckNum
+        dup_ack_count = 0
+        // Remove ACKed segments from the buffer
+        retransmission_buffer.remove_all_before(send_base)
+        
+        // If there are still packets in flight, restart the timer
+        if not retransmission_buffer.is_empty():
+          restart_timer(RTO)
+        else:
+          stop_timer()
+          
+      else:
+        // This is a duplicate ACK
+        dup_ack_count = dup_ack_count + 1
+        if dup_ack_count == 3:
+          // Fast Retransmit!
+          segment_to_resend = retransmission_buffer.get(send_base)
+          send(segment_to_resend)
+          restart_timer(RTO)
+          
+    if event is TIMEOUT:
+      // Timeout occurred. Resend the oldest unacknowledged packet.
+      segment_to_resend = retransmission_buffer.get(send_base)
+      send(segment_to_resend)
+      restart_timer(RTO)
+```
+
+**Receiver Logic (with Buffering):**
+```pseudocode
+function handle_established_state_sliding_window(segment):
+  if segment.has_flag(DATA):
+    // Always validate checksum first (not shown for brevity)
+    
+    // If the segment is the one we're waiting for
+    if segment.SeqNum == expected_seq_num:
+      write_to_file(segment.Payload)
+      expected_seq_num = expected_seq_num + length(segment.Payload)
+      
+      // Now, check the buffer for any contiguous segments
+      while receive_buffer.has(expected_seq_num):
+        buffered_segment = receive_buffer.get(expected_seq_num)
+        write_to_file(buffered_segment.Payload)
+        expected_seq_num = expected_seq_num + length(buffered_segment.Payload)
+        receive_buffer.remove(buffered_segment.SeqNum)
+        
+    // If the segment is a future packet
+    else if segment.SeqNum > expected_seq_num:
+      // Buffer it for later
+      receive_buffer.add(segment)
+      
+    // Always send a cumulative ACK for the next in-order byte we need
+    ack_segment = create_segment(flags=ACK, AckNum=expected_seq_num)
+    send(ack_segment)
+```
 
 ---
 

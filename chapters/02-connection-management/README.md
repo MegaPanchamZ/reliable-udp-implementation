@@ -26,20 +26,98 @@ The process of using these flags to establish a connection is called a **three-w
 
 **Design Sketch (Workshop on Paper):**
 
-Let's design the logic for the handshake.
+The three-way handshake is a classic sequence of events. A Mermaid diagram is the perfect way to visualize this flow.
 
-1.  **Sender's Role:**
-    *   What's the first thing the Sender should send? (Hint: It needs to `SYN`chronize).
-    *   After sending the `SYN`, what state should it be in? What is it waiting for?
-    *   What does it need to receive from the Receiver to confirm the connection is open?
+```mermaid
+sequenceDiagram
+    participant Sender
+    participant Receiver
 
-2.  **Receiver's Role:**
-    *   What is the Receiver's initial state?
-    *   What message should it be listening for?
-    *   When it receives the `SYN`, what should it send back? (Hint: It needs to `ACK` the `SYN`).
-    *   After sending its response, what state should it be in?
+    Note over Sender,Receiver: Initial State: CLOSED / LISTEN
 
-Sketch this out as a timeline. Draw the Sender on the left, the Receiver on the right, and use arrows to show the sequence of `SYN` and `ACK` messages.
+    Sender->>Receiver: SYN (SeqNum=X)
+    Note right of Sender: State: SYN_SENT
+
+    Receiver->>Sender: SYN-ACK (SeqNum=Y, AckNum=X+1)
+    Note left of Receiver: State: SYN_RCVD
+
+    Sender->>Receiver: ACK (SeqNum=X+1, AckNum=Y+1)
+    Note over Sender,Receiver: State: ESTABLISHED
+```
+
+Here is the pseudocode for the state machine logic:
+
+**Sender Logic:**
+```pseudocode
+function establish_connection():
+  set_state(SYN_SENT)
+  syn_segment = create_segment(flags=SYN, SeqNum=initial_seq_num)
+  
+  // Retry loop for robustness
+  for i from 1 to MAX_RETRIES:
+    send(syn_segment)
+    
+    // Wait for a response with a timeout
+    response = receive_with_timeout(RTO)
+    
+    if response is not null and response.has_flag(SYN, ACK):
+      // Handshake successful!
+      set_state(ESTABLISHED)
+      update_sequence_numbers(response.AckNum)
+      return SUCCESS
+      
+  return FAILURE "Handshake timed out"
+
+function close_connection():
+  set_state(FIN_WAIT)
+  fin_segment = create_segment(flags=FIN, SeqNum=current_seq_num)
+  
+  // Retry loop
+  for i from 1 to MAX_RETRIES:
+    send(fin_segment)
+    response = receive_with_timeout(RTO)
+    
+    if response is not null and response.has_flag(ACK):
+      set_state(CLOSED)
+      return SUCCESS
+      
+  return FAILURE "Teardown timed out"
+```
+
+**Receiver Logic:**
+```pseudocode
+function main_receive_loop():
+  set_state(LISTEN)
+  
+  while true:
+    segment = receive()
+    
+    if segment is corrupt:
+      continue // Discard
+      
+    switch get_state():
+      case LISTEN:
+        if segment.has_flag(SYN):
+          set_state(ESTABLISHED) // Simplified state transition
+          // Prepare response
+          syn_ack_segment = create_segment(flags=SYN,ACK, SeqNum=initial_receiver_seq, AckNum=segment.SeqNum + 1)
+          send(syn_ack_segment)
+          
+      case ESTABLISHED:
+        if segment.has_flag(FIN):
+          set_state(TIME_WAIT)
+          ack_segment = create_segment(flags=ACK, AckNum=segment.SeqNum + 1)
+          send(ack_segment)
+          
+          // Wait for a fixed period before closing to catch stray packets
+          sleep(2 * RTO)
+          set_state(CLOSED)
+          return // End of connection
+          
+        else:
+          // Handle data (covered in next chapter)
+          pass
+```
 
 ---
 

@@ -24,17 +24,74 @@ This process repeats for every single segment. It's like a very cautious convers
 
 **Design Sketch (Workshop on Paper):**
 
-Let's add this logic to our existing `Sender` and `Receiver` modules.
+The data flow for Stop-and-Wait is a simple, repeating sequence.
 
-1.  **Sender's Logic (`ESTABLISHED` state):**
-    *   How will the sender keep track of which segment it's waiting for an ACK for? (Hint: `send_base`).
-    *   After sending a segment with `SeqNum=X`, what `AckNum` should it expect back from the receiver?
-    *   The sender's main loop will now involve: reading a chunk from the file, sending it, and waiting for a specific ACK before reading the next chunk.
+```mermaid
+sequenceDiagram
+    participant Sender
+    participant Receiver
 
-2.  **Receiver's Logic (`ESTABLISHED` state):**
-    *   How will the receiver know if a data segment is the one it's supposed to get next? (Hint: `expected_seq_num`).
-    *   When it receives the correct segment, what two things must it do? (One involves the file, the other involves sending a message back).
-    *   What should the `AckNum` be in its response?
+    Note over Sender,Receiver: Connection is ESTABLISHED
+
+    loop For each chunk of the file
+        Sender->>Receiver: DATA (SeqNum=N, Payload=chunk)
+        Note right of Sender: Sender stops and waits...
+        Receiver->>Sender: ACK (AckNum=N + len(chunk))
+        Note left of Receiver: Receiver processes data
+    end
+```
+
+Here is the pseudocode for the core logic within the `ESTABLISHED` state:
+
+**Sender Logic:**
+```pseudocode
+function send_data(file_bytes):
+  offset = 0
+  current_seq_num = get_initial_seq_num()
+  
+  while offset < length(file_bytes):
+    // Read a chunk of the file up to MSS
+    payload = file_bytes[offset : offset + MSS]
+    
+    // Create and send the segment
+    segment = create_segment(flags=DATA, SeqNum=current_seq_num, Payload=payload)
+    send(segment)
+    
+    // Stop and wait for the correct ACK
+    // (Robust timeout logic will be added in the next chapter)
+    response = receive_with_timeout(RTO)
+    
+    expected_ack_num = current_seq_num + length(payload)
+    
+    if response is not null and response.has_flag(ACK) and response.AckNum == expected_ack_num:
+      // ACK is correct, advance to the next chunk
+      offset = offset + length(payload)
+      current_seq_num = expected_ack_num
+    else:
+      // ACK is incorrect or timeout occurred. We will handle retransmission
+      // in the next chapter. For now, this would be an error.
+      pass 
+```
+
+**Receiver Logic (within the `ESTABLISHED` case):**
+```pseudocode
+function handle_established_state(segment):
+  if segment.has_flag(DATA):
+    // Check if this is the packet we are waiting for
+    if segment.SeqNum == expected_seq_num:
+      // It is! Write data to file.
+      write_to_file(segment.Payload)
+      
+      // Update our expectation for the next packet
+      expected_seq_num = expected_seq_num + length(segment.Payload)
+      
+    // If it's a duplicate (SeqNum < expected_seq_num), we do nothing with the
+    // data, but we still send an ACK to help the sender.
+    
+    // Send a cumulative ACK for the next sequence number we want.
+    ack_segment = create_segment(flags=ACK, AckNum=expected_seq_num)
+    send(ack_segment)
+```
 
 ---
 
