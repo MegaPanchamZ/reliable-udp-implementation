@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  # The Receiver service
+  receiver:
+    build: .  # Build from the Dockerfile in the current directory
+    container_name: urp-receiver
+    # Mounts the local ./data directory into the container at /data
+    volumes:
+      - ./data:/data
+    # Run the receiver, listening on port 5000
+    # It will write the output file to the shared /data volume
+    command: [
+      "/bin/receiver",
+      "-receiver_port=5000",
+      "-sender_port=6000",
+      "-file=/data/received_file.txt",
+      "-max_win=4000",
+      "-log=/data/receiver_log.txt"
+    ]
+    # Expose the receiver's UDP port to the host machine for inspection
+    ports:
+      - "5000:5000/udp"
+
+  # The Sender service
+  sender:
+    build: .
+    container_name: urp-sender
+    volumes:
+      - ./data:/data
+    # Run the sender, connecting to the 'receiver' service on port 5000
+    # This uses the Docker service name 'receiver' as the hostname
+    command: [
+      "/bin/sender",
+      "-sender_port=6000",
+      "-receiver_host=receiver", # Use Docker DNS to find the receiver
+      "-receiver_port=5000",
+      "-file=/data/test_file.txt",
+      "-max_win=4000",
+      "-rto=100",
+      "-flp=0.1",
+      "-rlp=0.1",
+      "-fcp=0.05",
+      "-rcp=0.05",
+      "-log=/data/sender_log.txt"
+    ]
+    ports:
+      - "6000:6000/udp"
+    # Ensures the receiver is started before the sender
+    depends_on:
+      - receiver

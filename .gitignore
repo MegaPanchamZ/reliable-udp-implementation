@@ -1,0 +1,52 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+sender
+receiver
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Dependency directories
+vendor/
+
+# Build artifacts
+/bin/
+
+# Data directory outputs
+/data/*_log.txt
+/data/received_file.txt
+/data/test_*.txt
+
+# Test artifacts
+test_results.csv
+*_stdout.txt
+*_stderr.txt
+*_pid.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Docker
+.dockerignore
+
+.env
