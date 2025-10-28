@@ -235,4 +235,4 @@ Contributors will be acknowledged in:
 - Release notes
 - Documentation credits
 
-Thank you for helping make network programming education better! 🚀
+Thank you for helping make network programming education better!

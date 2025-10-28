@@ -4,7 +4,7 @@ Welcome, aspiring network sorcerer! This repository is not just a collection of 
 
 You will learn to conquer the chaos of an unreliable network by crafting the data structures (spells) and algorithms (rituals) that guarantee data arrives perfectly, every time—just like TCP, but built by you!
 
-## 🚀 Quick Start
+## Quick Start
 
 **Want to see it work immediately?**
 
@@ -25,7 +25,7 @@ go build -o receiver.exe ./cmd/receiver
 
 **For detailed build instructions, see [BUILDING.md](./BUILDING.md)**.
 
-## 📚 The Adventure Ahead (Table of Contents)
+## The Adventure Ahead (Table of Contents)
 
 This guide is structured into chapters. It's recommended to follow them in order, as each chapter builds upon the last.
 
@@ -53,34 +53,34 @@ This guide is structured into chapters. It's recommended to follow them in order
     *   Practical environment setup and socket programming examples
     *   *Multiple languages: Go, Python, C, JavaScript, and more*
 
-## 🎯 Your Quest: Getting Started
+## Your Quest: Getting Started
 
 You can approach this repository in multiple ways:
 
-### 1. 📖 **The Sorcerer's Apprentice** (Learning Mode)
+### 1. **The Sorcerer's Apprentice** (Learning Mode)
    - Read through the chapters in `/chapters` directory sequentially
    - Understand the theory and design decisions
    - Examine the reference implementation in `/internal` and `/cmd`
    - **Best for:** Understanding how reliable protocols work
 
-### 2. 🛠️ **The Master Crafter** (Hands-On Mode)
+### 2. **The Master Crafter** (Hands-On Mode)
    - Follow chapter guides and implement the protocol yourself
    - Use the reference code when stuck
    - Test your implementation against the test suite
    - **Best for:** Building practical networking skills
 
-### 3. 🔬 **The Experimenter** (Research Mode)
+### 3. **The Experimenter** (Research Mode)
    - Modify the existing protocol (change window size, timeouts, etc.)
    - Run tests to see the effects
    - Try the examples in different programming languages
    - **Best for:** Exploring protocol behavior and optimization
 
-## 🧪 Testing Your Protocol
+## Testing Your Protocol
 
 ### Quick Validation
 ```bash
 # Windows PowerShell
-.\run_tests.ps1 -Quick
+.un_tests.ps1 -Quick
 
 # Linux/Mac
 ./run_tests.sh --quick
@@ -88,7 +88,7 @@ You can approach this repository in multiple ways:
 
 ### Full Test Suite (16 tests)
 ```bash
-.\run_tests.ps1           # Windows
+.un_tests.ps1           # Windows
 ./run_tests.sh            # Linux/Mac
 ```
 
@@ -106,9 +106,9 @@ docker-compose up --build
 docker-compose down
 ```
 
-After the test completes, check that `data/test_file.txt` and `data/received_complete.txt` are identical—that means it worked! ✅
+After the test completes, check that `data/test_file.txt` and `data/received_complete.txt` are identical—that means it worked!
 
-## 📦 Repository Structure
+## Repository Structure
 
 ```
 UDPAssignmentFun/
@@ -128,7 +128,7 @@ UDPAssignmentFun/
 └── README.md            # You are here!
 ```
 
-## 🎓 What You'll Learn
+## What You'll Learn
 
 By following this repository, you'll gain deep understanding of:
 
@@ -140,7 +140,7 @@ By following this repository, you'll gain deep understanding of:
 - **Concurrency** - Thread-safe logging, asynchronous I/O
 - **Testing** - Simulation, edge cases, probabilistic scenarios
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions! Whether you're:
 - Fixing typos
@@ -151,7 +151,7 @@ We welcome contributions! Whether you're:
 
 See **[CONTRIBUTING.md](./CONTRIBUTING.md)** for guidelines.
 
-## 📝 Protocol Specifications
+## Protocol Specifications
 
 **URP (UDP Reliable Protocol)** features:
 - **Header:** 6 bytes (SeqNum:2, AckNum:2, Flags:1, Checksum:1)
@@ -163,25 +163,25 @@ See **[CONTRIBUTING.md](./CONTRIBUTING.md)** for guidelines.
 - **Connection:** 3-way handshake (SYN/SYN-ACK)
 - **Teardown:** Graceful FIN handshake with TIME_WAIT
 
-## 📖 Additional Resources
+## Additional Resources
 
 - **[BUILDING.md](./BUILDING.md)** - Complete build, run, and troubleshooting guide
 - **[QUICKSTART.md](./QUICKSTART.md)** - Quick reference for common tasks
 - **[TEST_SUITE.md](./TEST_SUITE.md)** - Detailed test documentation
 
-## 🏆 Project Status
+## Project Status
 
-✅ **Fully Functional** - All core features implemented and tested
+**Fully Functional** - All core features implemented and tested
 - Stop-and-wait mode: 100% reliable
 - Sliding window: Handles packet loss/corruption with retransmission
 - Comprehensive test suite with 16 validation scenarios
 - Multi-language examples available
 
-## 📄 License
+## License
 
 This is an educational project for learning reliable transport protocol design. Feel free to use, modify, and learn from it!
 
-## 🌟 Acknowledgments
+## Acknowledgments
 
 Built as an educational resource to demystify how TCP-like protocols work under the hood. Inspired by classic networking courses and RFCs.
 

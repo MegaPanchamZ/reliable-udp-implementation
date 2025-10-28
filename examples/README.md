@@ -2,7 +2,7 @@
 
 This directory contains simple UDP sender/receiver examples in **7 programming languages**. These examples demonstrate the basics of UDP socket programming before diving into the full URP (UDP Reliable Protocol) implementation.
 
-## 📁 Available Examples
+## Available Examples
 
 | Language | Directory | Level | Description |
 |----------|-----------|-------|-------------|
@@ -14,7 +14,7 @@ This directory contains simple UDP sender/receiver examples in **7 programming l
 | **Kotlin** | [kotlin/](./kotlin/) | Intermediate | JVM-based with null safety |
 | **Dart** | [dart/](./dart/) | Intermediate | Async/await with streams |
 
-## 🎯 What These Examples Demonstrate
+## What These Examples Demonstrate
 
 All examples implement a simple **echo protocol**:
 1. **Sender** sends "Hello, URP!" to port 8080
@@ -30,7 +30,7 @@ All examples implement a simple **echo protocol**:
 - Basic error handling
 - Address/port management
 
-## 🚀 Quick Start
+## Quick Start
 
 Each language directory has its own README with:
 - Installation instructions
@@ -53,58 +53,58 @@ cd examples/[language]
 # Run sender (see language-specific README)
 ```
 
-## 🔍 Comparing Languages
+## Comparing Languages
 
 ### Go
-✅ Built-in UDP support (net package)
-✅ Fast compilation
-✅ Good error handling
-✅ No external dependencies
-📌 **No version requirement** - Any modern Go version works
+- Built-in UDP support (net package)
+- Fast compilation
+- Good error handling
+- No external dependencies
+- **No version requirement** - Any modern Go version works
 
 ### Python
-✅ Easiest to learn
-✅ Clean, readable syntax
-✅ Built-in socket library
-✅ Great for prototyping
-📌 **Requires Python 3.9+** (3.8 and earlier are EOL)
+- Easiest to learn
+- Clean, readable syntax
+- Built-in socket library
+- Great for prototyping
+- **Requires Python 3.9+** (3.8 and earlier are EOL)
 
 ### JavaScript (Node.js)
-✅ Event-driven model
-✅ Non-blocking I/O
-✅ Web-friendly
-✅ Large ecosystem
-📌 **Requires Node.js 18+** (LTS recommended)
+- Event-driven model
+- Non-blocking I/O
+- Web-friendly
+- Large ecosystem
+- **Requires Node.js 18+** (LTS recommended)
 
 ### C
-✅ Direct system calls
-✅ Maximum performance
-✅ Low-level control
-✅ **Cross-platform** - Works on Windows, Linux, macOS
-⚠️ More complex error handling
+- Direct system calls
+- Maximum performance
+- Low-level control
+- **Cross-platform** - Works on Windows, Linux, macOS
+- More complex error handling
 
 ### C++
-✅ Boost.Asio - modern async I/O
-✅ RAII for resource management
-✅ Type safety
-⚠️ Requires Boost library
-📌 **Requires C++11 or later**
+- Boost.Asio - modern async I/O
+- RAII for resource management
+- Type safety
+- Requires Boost library
+- **Requires C++11 or later**
 
 ### Kotlin
-✅ Null safety
-✅ Java interoperability
-✅ Concise syntax
-⚠️ Requires JVM
-📌 **Requires JDK 8+**
+- Null safety
+- Java interoperability
+- Concise syntax
+- Requires JVM
+- **Requires JDK 8+**
 
 ### Dart
-✅ Modern async/await
-✅ Stream-based
-✅ Cross-platform
-✅ Flutter integration
-📌 **Requires Dart SDK 3.0+** (for null safety)
+- Modern async/await
+- Stream-based
+- Cross-platform
+- Flutter integration
+- **Requires Dart SDK 3.0+** (for null safety)
 
-## 📚 Learning Path
+## Learning Path
 
 1. **Start Simple** - Try Python or Go examples first
 2. **Understand UDP** - Compare how each language handles sockets
@@ -112,15 +112,15 @@ cd examples/[language]
 4. **Explore Async** - Check JavaScript or Dart for event-driven models
 5. **Study URP** - Move to `/cmd` and `/internal` for full protocol
 
-## ⚠️ Important Notes
+## Important Notes
 
 ### These Are NOT Reliable
 These examples use **raw UDP** without any reliability mechanisms:
-- ❌ No acknowledgments
-- ❌ No retransmission
-- ❌ No ordering guarantees
-- ❌ No error detection beyond OS-level
-- ❌ No flow control
+- No acknowledgments
+- No retransmission
+- No ordering guarantees
+- No error detection beyond OS-level
+- No flow control
 
 ### Packets Can Be Lost
 If you don't see a response, try running again. UDP is **best-effort delivery**.
@@ -128,7 +128,7 @@ If you don't see a response, try running again. UDP is **best-effort delivery**.
 ### Port Conflicts
 If port 8080 is in use, you'll get a "bind failed" error. Change the port in both sender and receiver.
 
-## 🎓 After These Examples
+## After These Examples
 
 Once you understand basic UDP:
 
@@ -138,7 +138,7 @@ Once you understand basic UDP:
 4. **Run the Full System** - [/cmd](../cmd/) contains complete sender/receiver with URP
 5. **Run Tests** - [/run_tests.ps1](../run_tests.ps1) validates everything works
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### "Address already in use"
 Another process is using port 8080. Kill it or change the port.
@@ -165,14 +165,14 @@ If you see errors about `sys/socket.h` or `unistd.h`:
 - Link with `-lws2_32` flag when using MinGW
 - Use `cl` compiler with `ws2_32.lib` when using MSVC
 
-## 📖 Additional Resources
+## Additional Resources
 
 - [UDP Protocol Overview](https://en.wikipedia.org/wiki/User_Datagram_Protocol)
 - [TCP vs UDP](https://www.cloudflare.com/learning/ddos/glossary/user-datagram-protocol-udp/)
 - [Socket Programming](https://beej.us/guide/bgnet/)
 - [Main Project README](../README.md)
 
-## 🤝 Contributing
+## Contributing
 
 Want to add examples in another language? See [CONTRIBUTING.md](../CONTRIBUTING.md)!
 
