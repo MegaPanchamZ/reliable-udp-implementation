@@ -14,7 +14,8 @@ fun main() {
         val message = String(packet.data, 0, packet.length)
         println("Received '$message' from ${packet.address}:${packet.port}")
 
-        val response = "Message received".toByteArray()
+        // Echo back with prefix
+        val response = "Echo: $message".toByteArray()
         val responsePacket = DatagramPacket(response, response.size, packet.address, packet.port)
         socket.send(responsePacket)
     }

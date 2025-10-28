@@ -1,12 +1,12 @@
 package protocol
 
 import (
+	"urp-go/internal/logger"
+	"urp-go/internal/plc"
+	"urp-go/internal/urp"
 	"fmt"
 	"net"
 	"time"
-	"urp-go-project/internal/logger"
-	"urp-go-project/internal/plc"
-	"urp-go-project/internal/urp"
 )
 
 // Sender implements the sender-side URP protocol with 5-state machine

@@ -12,7 +12,10 @@ void main() async {
       if (datagram == null) continue;
       final message = utf8.decode(datagram.data);
       print("Received '$message' from ${datagram.address.address}:${datagram.port}");
-      socket.send(utf8.encode('Message received'), datagram.address, datagram.port);
+
+      // Echo back with prefix
+      final response = 'Echo: $message';
+      socket.send(utf8.encode(response), datagram.address, datagram.port);
     }
   }
 }

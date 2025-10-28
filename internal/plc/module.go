@@ -1,9 +1,9 @@
 package plc
 
 import (
+	"urp-go/internal/logger"
+	"urp-go/internal/urp"
 	"math/rand"
-	"urp-go-project/internal/logger"
-	"urp-go-project/internal/urp"
 )
 
 // Module implements Packet Loss and Corruption simulation

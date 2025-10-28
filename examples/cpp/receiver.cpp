@@ -16,8 +16,12 @@ int main() {
             char data[1024];
             udp::endpoint sender_endpoint;
             size_t length = socket.receive_from(boost::asio::buffer(data, 1024), sender_endpoint);
-            std::cout << "Received '" << std::string(data, length) << "'" << std::endl;
-            socket.send_to(boost::asio::buffer("Message received"), sender_endpoint);
+            std::string message(data, length);
+            std::cout << "Received '" << message << "'" << std::endl;
+
+            // Echo back with prefix
+            std::string response = "Echo: " + message;
+            socket.send_to(boost::asio::buffer(response), sender_endpoint);
         }
     } catch (std::exception& e) {
         std::cerr << e.what() << std::endl;

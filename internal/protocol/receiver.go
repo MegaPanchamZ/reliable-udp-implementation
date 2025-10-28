@@ -1,13 +1,13 @@
 package protocol
 
 import (
+	"urp-go/internal/logger"
+	"urp-go/internal/plc"
+	"urp-go/internal/urp"
 	"fmt"
 	"net"
 	"os"
 	"time"
-	"urp-go-project/internal/logger"
-	"urp-go-project/internal/plc"
-	"urp-go-project/internal/urp"
 )
 
 // Receiver implements the receiver-side URP protocol with 4-state machine
