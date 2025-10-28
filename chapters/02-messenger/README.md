@@ -1,51 +1,88 @@
-# Chapter 2: The Messenger - The Sender's Tale
+# Chapter 2: The Messenger - Building the Sender
 
-The Sender has the hardest job. It must be a meticulous bookkeeper, a patient watchman, and a swift courier all at once. Its logic is built around two key concepts: the **Sliding Window** and the **Retransmission Timer**.
+Now that we have our `URPSegment` blueprint, we can build the Sender. The Sender's job is complex: it must send data, ensure it arrives, and manage the flow of information without overwhelming the network.
 
-### The Sliding Window: A Conductor's Baton
+Let's build the Sender's logic by tackling its core challenges one by one.
 
-The Sender can't just send all 100 pages of the novel at once. The network (and the receiver) would be overwhelmed. It needs to control the flow of data. The sliding window algorithm is the solution.
+---
 
-Imagine the Sender has a "window" of a certain size, say 4 pages. This means it can send pages 1, 2, 3, and 4 without waiting for an acknowledgment. But it cannot send page 5 until it knows page 1 has been received safely.
+### Problem 1: Flow Control - How to Avoid Flooding the Network?
 
--   `sendBase`: The start of the window. The oldest page sent but not yet acknowledged.
--   `nextSeqNum`: The end of the window. The next new page to send.
+If the sender sends 1,000 packets all at once, it could easily overwhelm the receiver's buffer or congest the network path. This is like trying to force a novel through a mail slot instead of sending it page by page.
 
-When the receiver sends an `ACK` for page 1, the window "slides" forward. The `sendBase` is now 2, and the Sender is allowed to send page 5.
-
-### "Draw It Out" Challenge #3
-
-Let's visualize this. Assume a window size of 5.
-1.  Draw the initial state. The Sender has sent pages 1, 2, 3, 4, 5. The window covers these pages. `sendBase` is 1, `nextSeqNum` is 6. The window is full.
-2.  Now, an `ACK` arrives for page 3. **Important:** Our ACKs are cumulative. An ACK for page 3 means "I have received everything up to and including page 3."
-3.  Draw the "after" state. Where does the window slide to? What is the new `sendBase`? What new pages can the Sender now send?
-
-### The Retransmission Timer: A Test of Patience
-
-What if page 3 was lost? The Sender would wait forever for an `ACK` that will never come. To prevent this, the Sender starts a timer every time it sends data. If the timer goes off before an `ACK` arrives, it assumes the packet was lost and **retransmits** it. This is the Retransmission Timeout (RTO).
-
-### Puzzle: The Goldilocks Timer
-
-What problems would occur if your RTO value was:
-1.  **Too short?** (e.g., you retransmit before the original packet even has a chance to arrive).
-2.  **Too long?** (e.g., you wait for ages before realizing a packet was lost).
+**How can the sender limit the number of packets it sends without waiting for an ACK for every single one?**
 
 <details>
-  <summary>Click to reveal the answer</summary>
+  <summary><strong>Solution: The Sliding Window</strong></summary>
   
-  1.  **Too short:** You would flood the network with unnecessary duplicate packets, causing congestion and wasting bandwidth. It's like a nervous person who keeps asking "Did you get my text?" every five seconds.
-  2.  **Too long:** The connection would feel sluggish and slow. Users would experience long stalls whenever a packet is dropped.
+  We'll implement a **Sliding Window**. This is a conceptual "window" that defines how much data the sender can have "in-flight" (sent but not yet acknowledged).
+
+  - **Window Size (`max_win`):** A limit, in bytes, on the amount of unacknowledged data.
+  - **`send_base`:** The sequence number of the oldest unacknowledged packet. This is the left edge of the window.
+  - **`next_seq_num`:** The sequence number of the next new packet to be sent. This is the right edge of the window.
+
+  **The Rule:** The sender can only send new packets if `next_seq_num - send_base < max_win`.
+
+  When an ACK arrives, it "slides" the window forward by updating `send_base`. This allows the sender to transmit more data. This approach is far more efficient than Stop-and-Wait, where the window size is always just one packet.
+
 </details>
 
-### Fast Retransmit: An Optimization
+---
 
-Waiting for a timeout is slow. There's a clever trick to speed things up. If the Sender receives the *same* `ACK` multiple times (usually 3), it's a huge clue.
+### Problem 2: Packet Loss - What If an ACK Never Comes?
 
-Imagine the Sender sent pages 10, 11, 12, 13. Page 11 gets lost, but 12 and 13 arrive. The Receiver will send:
--   `ACK 11` (when it receives page 10)
--   `ACK 11` (when it receives page 12, it's still waiting for 11)
--   `ACK 11` (when it receives page 13, it's *still* waiting for 11)
+The sender sends a packet, but the packet (or its corresponding ACK) is lost. Without a mechanism to handle this, the sender would wait forever, and the connection would stall.
 
-When the Sender sees three duplicate `ACK 11`s, it doesn't wait for the timer. It immediately knows page 11 is the culprit and retransmits it. This is **Fast Retransmit**.
+**How does the sender detect and recover from a lost packet?**
+
+<details>
+  <summary><strong>Solution: The Retransmission Timeout (RTO)</strong></summary>
+  
+  The sender will use a **timer**.
+
+  1.  **Start Timer:** When the sender sends a packet, it starts a timer for the *oldest unacknowledged segment* (`send_base`).
+  2.  **Wait for ACK:** If the ACK for `send_base` arrives, the window slides, and the timer is restarted for the new `send_base` (if there's still unacknowledged data).
+  3.  **Timeout:** If the timer expires before the ACK arrives, the sender assumes the packet was lost. It **retransmits** the segment at `send_base` and restarts the timer.
+
+  **The Goldilocks Problem:** Choosing the right RTO value is critical.
+  - **Too short:** Unnecessary retransmissions, causing network congestion.
+  - **Too long:** The protocol feels slow and sluggish when packets are dropped.
+
+</details>
+
+---
+
+### Problem 3: Inefficiency - Waiting for a Timeout is Slow
+
+Imagine packets 10, 11, 12, and 13 are sent. Packet 11 is lost, but 12 and 13 arrive at the receiver. The sender has to wait for the full RTO to expire before it retransmits packet 11, even though there's strong evidence that a specific packet is missing.
+
+**Is there a faster way to detect a single lost packet in a stream?**
+
+<details>
+  <summary><strong>Solution: Fast Retransmit</strong></summary>
+  
+  We can use duplicate ACKs as a clue. The receiver always ACKs the next in-order sequence number it's expecting.
+
+  - Receiver gets packet 10. It sends `ACK=11`.
+  - Packet 11 is lost.
+  - Receiver gets packet 12. It's out of order. It discards 12 and sends another `ACK=11`. (This is a **duplicate ACK**).
+  - Receiver gets packet 13. It's also out of order. It discards 13 and sends a third `ACK=11`.
+
+  **The Rule:** When the sender receives **three duplicate ACKs** for the same sequence number, it's a very strong signal that the packet immediately following that ACK was lost. The sender can then **immediately retransmit** the missing packet without waiting for the RTO timer to expire. This dramatically improves performance on networks with occasional packet loss.
+
+</details>
+
+---
+
+### The Sender's State Machine
+
+Combining these solutions, the sender operates as a **state machine**. Here's a simplified view:
+
+1.  **`CLOSED`**: The initial state.
+2.  **`SYN_SENT`**: After sending the initial `SYN` to start a connection, wait for a `SYN-ACK`.
+3.  **`ESTABLISHED`**: The main state for data transfer. Here, it manages the sliding window, RTO timer, and fast retransmit logic.
+4.  **`FIN_WAIT`**: After sending a `FIN` to close the connection, wait for the final `ACK`.
+
+By implementing this logic, our Sender becomes a robust messenger capable of handling the chaos of an unreliable network.
 
 **[Previous Chapter: The Blueprint](./../01-blueprint/README.md)** | **[Next Chapter: The Scribe](./../03-scribe/README.md)**

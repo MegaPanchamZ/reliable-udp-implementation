@@ -1,38 +1,96 @@
-# Chapter 6: The Workshop - Forging Your Protocol
+# Chapter 6: The Workshop - A Phased Implementation Guide
 
-Theory and diagrams are the soul of our protocol, but code is its body. In this chapter, we'll step into the workshop. We'll lay out the project structure, set up a consistent development environment with Docker, provide the foundational code for network communication (sockets) in several popular languages, and define the rigorous tests that will prove our creation is robust.
+This guide provides a logical, step-by-step order to build your URP implementation. Following these phases will help you build from simple to complex, with a testable milestone at each step. You will rely heavily on your log files at every stage.
 
-## Part 1: Structuring Your Workshop (Repository Setup)
+---
 
-A clean workshop is an efficient workshop. A well-organized project is easier to build, debug, and expand. The root `README.md` of this repository explains the structure we have chosen.
+### Phase 1: The Skeleton (Argument & Socket Setup)
 
-## Part 2: The Universal Workbench (Docker Setup)
+Your goal here is to just make the two programs talk. Forget the protocol for a second.
 
-Programming languages and operating systems have their own quirks. To ensure our protocol works the same for everyone, everywhere, we'll use **Docker**. Docker creates a lightweight, isolated container—a universal workbench that has all the tools we need, pre-installed. See the root `README.md` for instructions on how to use the `Dockerfile` and `docker-compose.yml` included in this project.
+1.  **Argument Parsing:** Write the code for both `Sender` and `Receiver` to parse all their respective command-line arguments.
+2.  **Socket Setup:**
+    *   **Receiver:** Create a UDP socket and bind it to the `receiver_port`. Make it print a message when it receives *any* data.
+    *   **Sender:** Create a UDP socket. Don't bind it (or bind to `sender_port`). Write code to send a simple "Hello" string to the `receiver_port`.
+3.  **Test:** Run the Receiver, then the Sender. If the Receiver prints "Hello," you know your basic socket and argument logic is correct.
 
-## Part 3: The Art of the Socket - Your Portal to the Network
+---
 
-A **socket** is the fundamental programming interface for network communication. It's like a magical portal you can open in your application to send and receive data. We'll be using **UDP (User Datagram Protocol)** sockets, which are connectionless and don't guarantee delivery—perfect for building our *own* reliability layer on top.
+### Phase 2: Core Data Structures (Segment & Logging)
 
-You can find starter examples for creating a simple UDP client (sender) and server (receiver) in several popular languages in the `/examples` directory of this repository.
+Now, build the tools you'll need. Don't write any protocol logic yet.
 
--   [C](./../../examples/c/)
--   [C++](./../../examples/cpp/)
--   [Go](./../../examples/go/)
--   [Dart](./../../examples/dart/)
--   [Kotlin](./../../examples/kotlin/)
--   [Python](./../../examples/python/)
--   [JavaScript (Node.js)](./../../examples/javascript/)
+1.  **`URPSegment` Class/Module:** Create a class or module to handle your segment.
+    *   Implement `pack()`: A function that takes `seq_num`, flags, and data, and builds the 6-byte header plus payload into a single `bytes` object.
+    *   Implement `unpack()`: A function that takes raw `bytes` from the socket and parses them into a `URPSegment` object.
+2.  **`ErrorDetection` Module:** Create a helper module with two functions:
+    *   `compute_checksum(bytes)`: Implements your chosen error-detection scheme.
+    *   `validate_checksum(bytes)`: Returns `True` or `False`.
+3.  **`Logger` Class:** Create a logging utility to write to `sender_log.txt` and `receiver_log.txt`. This is **critical for debugging**. Get the timestamping and formatting right. You will be using this in *every* step from now on.
 
-## Part 4: The Gauntlet - Test Cases for Reliability
+---
 
-A protocol is only as good as the tests it passes. The `run_tests.sh` script is designed to be the gauntlet that proves our protocol's reliability. It runs the following scenarios:
+### Phase 3: Stop-and-Wait on a *Reliable* Channel
 
--   **Test Case 1: The Perfect World:** 0% loss, 0% corruption.
--   **Test Case 2: The Void:** High packet loss.
--   **Test Case 3: The Saboteur:** High packet corruption.
--   **Test Case 4: The Chaos:** A mix of loss and corruption.
+This is your "Minimum Viable Product." Set `max_win = 1000` and all four loss/corruption probabilities to `0`.
 
-By passing this gauntlet, you will have forged a protocol that is not just functional, but truly **reliable**.
+1.  **Implement Handshake:**
+    *   **Sender:** Send a `SYN` segment. Wait for an `ACK`.
+    *   **Receiver:** In a `LISTEN` state, wait for a `SYN`. When it arrives, send the `ACK` and move to `ESTABLISHED`.
+2.  **Implement Data Transfer (Stop-and-Wait):**
+    *   **Sender:** Read 1000 bytes (MSS) from the file. Send it as one `DATA` segment. Wait for the correct `ACK` before sending the next segment.
+    *   **Receiver:** If in `ESTABLISHED`, wait for a `DATA` segment. If the sequence number is the one you expect, write the data to the file and send a cumulative `ACK`.
+3.  **Implement Teardown:**
+    *   **Sender:** After the last file segment is ACKed, send a `FIN` segment. Wait for the `ACK`.
+    *   **Receiver:** When you get a `FIN`, send an `ACK`, move to `TIME_WAIT`. Wait 2 seconds, then close.
+
+**Test:** Your file should transfer perfectly. Your logs should be clean.
+
+---
+
+### Phase 4: Stop-and-Wait on an *Unreliable* Channel
+
+Now, make your Phase 3 code robust. Keep `max_win = 1000`.
+
+1.  **Implement the PLC Module:** Add the Packet Loss and Corruption logic to your `Sender`. Make *all* outgoing and incoming segments pass through it.
+2.  **Implement Timers (Sender):** This is the hard part.
+    *   Add the `rto` timer.
+    *   Start the timer when you send `SYN`, `DATA`, or `FIN`.
+    *   If the timer expires, retransmit the segment (`SYN`, `DATA`, or `FIN`) and restart the timer.
+    *   If you receive the correct `ACK`, stop the timer.
+3.  **Implement Checksum & Duplicates (Receiver):**
+    *   Use your `validate_checksum()` function on *every* segment. If it fails, **silently discard the packet** (do not send an `ACK`). The Sender's timeout will handle it.
+    *   Handle duplicate packets. If you receive a `SYN` or `DATA` segment you've already processed, discard the data but **re-send the ACK**. This is because your previous ACK might have been lost.
+
+**Test:** Now, run with `flp`, `rlp`, `fcp`, and `rcp` > 0. Your file should *still* transfer correctly, and your logs will show `drp`, `cor`, and retransmissions.
+
+---
+
+### Phase 5: Sliding Window & Fast Retransmit
+
+This is the final upgrade from Stop-and-Wait to full URP.
+
+1.  **Sliding Window (Sender):**
+    *   Upgrade your Sender's logic. It now needs a buffer for all unacknowledged segments.
+    *   It should send new segments as long as the window (`next_seq_num - send_base`) is less than `max_win`.
+    *   The timer logic changes: It *only* runs for the oldest unacknowledged segment (`send_base`). When an ACK arrives that slides the window, restart the timer *if* there are still un-ACKed segments in flight.
+2.  **Buffering & Cumulative ACKs (Receiver):**
+    *   Upgrade your Receiver's logic. It needs a receive buffer.
+    *   Your ACK logic *must* be cumulative. The `ACK` number should always be the *next byte you expect in order*.
+    *   If you receive an out-of-order segment, buffer it. Send a *duplicate ACK* for the byte you're still waiting for.
+    *   When the missing segment arrives, write all contiguous, in-order data (from your buffer) to the file and send a new, updated cumulative `ACK`.
+3.  **Fast Retransmit (Sender):**
+    *   Implement the `dup_ack_count`.
+    *   If you receive a duplicate `ACK`, increment the count.
+    *   If `dup_ack_count == 3`, immediately retransmit the oldest unacknowledged segment and reset the count.
+
+---
+
+### Phase 6: Finalization
+
+1.  **Statistics:** Implement the logic to count all the final statistics and append them to the log files.
+2.  **Final Test:** Test *everything* in a consistent environment to ensure robustness.
+
+This order builds from simple to complex, and each phase is a testable milestone. Good luck!
 
 **[Previous Chapter: The Grand Assembly](./../05-assembly/README.md)**
