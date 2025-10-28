@@ -49,89 +49,22 @@ For our project, a uniform random PLC is a good and simple model. It allows us t
 
 ---
 
-### 5. Create (The "Implementation")
+### 5. Create (Your Implementation)
 
 **Coding Workshop:**
 
-Let's build the PLC module and integrate it. We also need a way to log the final performance statistics.
+It's time to build your testing tools and finalize the project.
 
-**File 1: `internal/plc/module.go`**
-This module will contain our Gremlin. It's initialized with the probabilities from the command line.
+1.  **Build the PLC Module.** Create a module that can be placed between your protocol logic and the raw socket.
+    *   It should have methods like `send()` that take a packet.
+    *   Inside, it should use a random number generator to decide whether to drop the packet, corrupt it, or send it normally, based on the probabilities provided.
+    *   Remember to handle both the forward (data) and reverse (ACK) paths.
+2.  **Integrate the PLC.** Modify your Sender and Receiver to use the PLC module for all outgoing network calls. All command-line arguments for loss/corruption probabilities should be passed to this module.
+3.  **Add Statistics Logging.**
+    *   Create a `Logger` module if you haven't already. It should handle writing formatted strings to your log files.
+    *   Add counters to your Sender and Receiver logic to track key metrics (e.g., total data segments sent, retransmissions, duplicate ACKs received, etc.).
+    *   Add a final method to your logger to write a summary of these statistics at the end of the transfer.
 
-```go
-package plc
-
-import (
-	"urp-go/internal/logger"
-	"urp-go/internal/urp"
-	"math/rand"
-)
-
-// Module implements Packet Loss and Corruption simulation
-type Module struct {
-	forwardLossProb       float64
-	reverseLossProb       float64
-	forwardCorruptionProb float64
-	reverseCorruptionProb float64
-	logger                *logger.Logger
-}
-
-// New creates a new PLC module
-func New(flp, rlp, fcp, rcp float64, log *logger.Logger) *Module {
-	// ...
-}
-
-// ProcessOutgoingForward is called by the Sender for every data packet
-func (m *Module) ProcessOutgoingForward(data []byte, seg *urp.URPSegment) ([]byte, bool) {
-	// Check for drop first
-	if rand.Float64() < m.forwardLossProb {
-		m.logger.LogDrop(seg.SeqNum)
-		return nil, false // Drop the packet
-	}
-
-	// Check for corruption
-	if rand.Float64() < m.forwardCorruptionProb {
-		corrupted := make([]byte, len(data))
-		copy(corrupted, data)
-		// Flip a bit in the payload to corrupt it
-		if len(corrupted) > urp.HeaderSize {
-			corrupted[urp.HeaderSize] ^= 0x01
-		}
-		m.logger.LogCorrupt(seg.SeqNum)
-		return corrupted, true
-	}
-
-	return data, true // Send normally
-}
-
-// (ProcessOutgoingReverse would have similar logic for ACKs)
-```
-
-**File 2: `internal/logger/logger.go` (Adding Final Stats)**
-We'll add a new method to our logger to write the final summary.
-
-```go
-// Inside the Logger struct...
-
-// LogStats writes the final summary of statistics
-func (l *Logger) LogStats(fileSize, segmentsSent, segmentsReceived, bytesSent, bytesReceived int) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	stats := fmt.Sprintf("\n--- STATS ---\n")
-	stats += fmt.Sprintf("File Size: %d bytes\n", fileSize)
-	stats += fmt.Sprintf("Segments Sent: %d\n", segmentsSent)
-	stats += fmt.Sprintf("Segments Received: %d\n", segmentsReceived)
-	stats += fmt.Sprintf("Bytes Sent (Payload): %d\n", bytesSent)
-	stats += fmt.Sprintf("Bytes Received (Payload): %d\n", bytesReceived)
-	stats += fmt.Sprintf("----------------\n")
-
-	l.file.WriteString(stats)
-}
-```
-
-To use this, you would add counters to your Sender and Receiver logic, and call `logger.LogStats()` just before the program exits.
-
-You have now completed the entire project. You have a fully functional, reliable, and testable transport protocol.
+You have now completed the entire project. You have a fully functional, reliable, and, most importantly, *testable* transport protocol.
 
 **[Previous Chapter: Sliding Window](./../05-sliding-window/README.md)**

@@ -69,86 +69,21 @@ We are choosing to build this "inefficient" protocol first because it's the best
 
 ---
 
-### 5. Create (The "Implementation")
+### 5. Create (Your Implementation)
 
 **Coding Workshop:**
 
-Let's add the Stop-and-Wait logic to the `ESTABLISHED` state in our `Sender` and `Receiver`.
+It's time to add the Stop-and-Wait logic to the `ESTABLISHED` state in your `Sender` and `Receiver` modules.
 
-**File 1: `internal/protocol/sender.go` (Updated `SendFile` logic)**
-We'll modify the main loop to send one segment and wait for its specific ACK.
-
-```go
-// Inside the Sender struct...
-
-func (s *Sender) sendData(data []byte) error {
-	offset := 0
-	for offset < len(data) {
-		// Determine the size of the next chunk
-		end := offset + urp.MSS
-		if end > len(data) {
-			end = len(data)
-		}
-		payload := data[offset:end]
-
-		// Create and send the segment
-		seg := urp.NewSegment(s.nextSeqNum, 0, 0, payload)
-		s.sendSegment(seg, true)
-
-		// STOP and WAIT for the ACK
-		ack, err := s.waitForAck(s.rto)
-		if err != nil {
-			// (In the next chapter, we'll add retransmission here)
-			return fmt.Errorf("timeout waiting for ACK for segment %d", s.nextSeqNum)
-		}
-
-		// Check if the ACK is the one we expect
-		if ack.AckNum == s.nextSeqNum+uint16(len(payload)) {
-			// It is! Update our state and move to the next chunk.
-			s.nextSeqNum = ack.AckNum
-			offset = end
-		} else {
-			// This is a duplicate or old ACK, ignore it for now.
-			// The timeout will handle retransmission if needed.
-		}
-	}
-	return nil
-}
-```
-
-**File 2: `internal/protocol/receiver.go` (Updated `Listen` logic)**
-We'll add the data handling part to our `ESTABLISHED` state.
-
-```go
-// Inside the Receiver struct's Listen loop, in the ESTABLISHED case...
-
-case urp.StateESTABLISHED:
-    if seg.HasFlag(urp.FlagFIN) {
-        // (FIN logic remains the same)
-        // ...
-        return nil
-    }
-
-    // Handle incoming data
-    if len(seg.Payload) > 0 {
-        // Is this the segment we are expecting?
-        if seg.SeqNum == r.expectedSeq {
-            // Yes. Write data to file.
-            _, err := r.outputFile.Write(seg.Payload)
-            if err != nil {
-                return err
-            }
-            
-            // Update what we expect next.
-            r.expectedSeq += uint16(len(seg.Payload))
-        }
-        
-        // Always send a cumulative ACK for the next byte we expect.
-        // If we received a duplicate, this re-sends the needed ACK.
-        ackSeg := urp.NewSegment(0, r.expectedSeq, urp.FlagACK, nil)
-        r.sendAck(ackSeg)
-    }
-```
+1.  **Update your Sender's main data-sending loop.** It should now perform the following steps:
+    *   Read one segment's worth of data from the input file.
+    *   Create and send the data segment.
+    *   **Stop** and **wait** for a corresponding ACK from the receiver.
+    *   Only once the correct ACK is received, should the loop continue to the next segment.
+2.  **Update your Receiver's `ESTABLISHED` state logic.** When a data segment is received:
+    *   Check if its sequence number is the one you are expecting (`expected_seq_num`).
+    *   If it is, write the payload to the output file and increment `expected_seq_num`.
+    *   Regardless of whether it was the expected segment or a duplicate, send back an ACK segment containing the current `expected_seq_num`.
 
 You have now implemented a basic, but functional, reliable transport protocol! It can transfer an entire file correctly over a perfect network. The next step is to make it robust enough to handle an imperfect one.
 

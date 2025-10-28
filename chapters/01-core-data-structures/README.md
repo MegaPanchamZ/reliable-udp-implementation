@@ -66,146 +66,16 @@ For this project, our simple checksum is sufficient to learn the *principle* of 
 
 ---
 
-### 5. Create (The "Implementation")
+### 5. Create (Your Implementation)
 
 **Coding Workshop:**
 
-It's time to write the code. We will create two files in the `internal/urp/` directory to handle these core data structures.
+It's time to write the code. Based on your design sketch, create the two core modules for your project.
 
-**File 1: `internal/urp/segment.go`**
-This file will define our `URPSegment` struct and handle the packing/unpacking logic. Notice how it uses Go's `binary` package to handle converting the 16-bit numbers to network byte order (Big Endian).
+1.  **Create your `Segment` module.** This class or struct should contain the header fields and payload. Implement `pack()` and `unpack()` methods.
+    *   **Important:** When packing and unpacking multi-byte fields (like the 16-bit `SeqNum`), you must handle the **network byte order**, which is **big-endian**. Most languages provide library functions to ensure this conversion is done correctly.
+2.  **Create your `ErrorDetection` module.** This should contain your `compute_checksum()` and `validate_checksum()` helper functions.
 
-```go
-package urp
-
-import (
-	"encoding/binary"
-	"fmt"
-)
-
-// URPSegment represents a URP protocol segment
-// Header format (6 bytes):
-// - Sequence Number (2 bytes)
-// - ACK Number (2 bytes)
-// - Flags (1 byte): ACK, SYN, FIN
-// - Checksum (1 byte)
-type URPSegment struct {
-	SeqNum   uint16
-	AckNum   uint16
-	Flags    uint8
-	Checksum uint8
-	Payload  []byte
-}
-
-// NewSegment creates a new URP segment
-func NewSegment(seqNum, ackNum uint16, flags uint8, payload []byte) *URPSegment {
-	seg := &URPSegment{
-		SeqNum:  seqNum,
-		AckNum:  ackNum,
-		Flags:   flags,
-		Payload: payload,
-	}
-	seg.ComputeAndSetChecksum()
-	return seg
-}
-
-// Pack converts the segment into a byte slice for transmission
-func (s *URPSegment) Pack() []byte {
-	totalLen := HeaderSize + len(s.Payload)
-	data := make([]byte, totalLen)
-
-	// Pack header
-	binary.BigEndian.PutUint16(data[0:2], s.SeqNum)
-	binary.BigEndian.PutUint16(data[2:4], s.AckNum)
-	data[4] = s.Flags
-	data[5] = s.Checksum
-
-	// Pack payload
-	if len(s.Payload) > 0 {
-		copy(data[HeaderSize:], s.Payload)
-	}
-
-	return data
-}
-
-// Unpack parses a byte slice into a URPSegment
-func Unpack(data []byte) (*URPSegment, error) {
-	if len(data) < HeaderSize {
-		return nil, fmt.Errorf("data too short: got %d bytes, need at least %d", len(data), HeaderSize)
-	}
-
-	seg := &URPSegment{
-		SeqNum:   binary.BigEndian.Uint16(data[0:2]),
-		AckNum:   binary.BigEndian.Uint16(data[2:4]),
-		Flags:    data[4],
-		Checksum: data[5],
-	}
-
-	// Extract payload if present
-	if len(data) > HeaderSize {
-		seg.Payload = make([]byte, len(data)-HeaderSize)
-		copy(seg.Payload, data[HeaderSize:])
-	}
-
-	return seg, nil
-}
-
-// ComputeAndSetChecksum calculates and sets the checksum for this segment
-func (s *URPSegment) ComputeAndSetChecksum() {
-	// Create a temporary buffer with header fields and payload
-	tempData := make([]byte, 5+len(s.Payload)) // Exclude checksum field itself
-	binary.BigEndian.PutUint16(tempData[0:2], s.SeqNum)
-	binary.BigEndian.PutUint16(tempData[2:4], s.AckNum)
-	tempData[4] = s.Flags
-	if len(s.Payload) > 0 {
-		copy(tempData[5:], s.Payload)
-	}
-
-	s.Checksum = ComputeChecksum(tempData)
-}
-
-// IsValid checks if the segment's checksum is valid
-func (s *URPSegment) IsValid() bool {
-	// Recompute checksum and compare
-	tempData := make([]byte, 5+len(s.Payload))
-	binary.BigEndian.PutUint16(tempData[0:2], s.SeqNum)
-	binary.BigEndian.PutUint16(tempData[2:4], s.AckNum)
-	tempData[4] = s.Flags
-	if len(s.Payload) > 0 {
-		copy(tempData[5:], s.Payload)
-	}
-
-	computed := ComputeChecksum(tempData)
-	return computed == s.Checksum
-}
-```
-
-**File 2: `internal/urp/checksum.go`**
-This file contains our simple error detection logic.
-
-```go
-package urp
-
-// ComputeChecksum calculates an 8-bit checksum for the given data
-// Using a simple sum modulo 256
-func ComputeChecksum(data []byte) uint8 {
-	var sum uint32
-
-	for _, b := range data {
-		sum += uint32(b)
-	}
-
-	// Return lower 8 bits
-	return uint8(sum & 0xFF)
-}
-
-// ValidateChecksum is a helper that can be used if you have the data and checksum separately
-func ValidateChecksum(data []byte, checksum uint8) bool {
-	computed := ComputeChecksum(data)
-	return computed == checksum
-}
-```
-
-You have now built the foundational data structures for the entire protocol!
+You have now built the foundational data structures for the entire protocol! For a complete reference, you can examine the Go implementation in the `internal/urp/` directory of this repository.
 
 **[Next Chapter: Connection Management](./../02-connection-management/README.md)**

@@ -65,155 +65,20 @@ Similarly, for teardown, a `FIN` handshake ensures both sides know that the data
 
 ---
 
-### 5. Create (The "Implementation")
+### 5. Create (Your Implementation)
 
 **Coding Workshop:**
 
-We will now create the "brain" of our protocol: the `Sender` and `Receiver` logic modules. These will contain the state machines that handle the connection lifecycle.
+It's time to create the "brain" of your protocol: the `Sender` and `Receiver` logic modules. These will contain the state machines that handle the connection lifecycle.
 
-**File 1: `internal/protocol/sender.go` (Initial Version)**
-This file will manage the sender's state. For now, we'll just implement the handshake and teardown logic.
+1.  **Create your `Sender` and `Receiver` modules/classes.** These will hold the state of the connection (e.g., `currentState`, `sequenceNumber`).
+2.  **Implement the Handshake Logic:**
+    *   In the Sender, create a method to send a `SYN` segment and wait for a `SYN-ACK`. This will transition the sender from a starting state to `ESTABLISHED`.
+    *   In the Receiver, the main loop should initially be in a `LISTEN` state. When a `SYN` segment arrives, it should respond with a `SYN-ACK` and transition to `ESTABLISHED`.
+3.  **Implement the Teardown Logic:**
+    *   In the Sender, create a method to send a `FIN` segment and wait for a final `ACK`.
+    *   In the Receiver, when in the `ESTABLISHED` state, it must handle receiving a `FIN` segment by responding with an `ACK` and transitioning to a `TIME_WAIT` state before eventually closing.
 
-```go
-package protocol
-
-import (
-	"urp-go/internal/logger"
-	"urp-go/internal/plc"
-	"urp-go/internal/urp"
-	"fmt"
-	"net"
-	"time"
-)
-
-// Sender implements the sender-side URP protocol
-type Sender struct {
-	// ... (other fields like conn, logger, plc)
-	state      int
-	sendBase   uint16
-	nextSeqNum uint16
-	// ...
-}
-
-// SendFile is the main entry point
-func (s *Sender) SendFile(data []byte) error {
-	// 1. Send SYN and wait for SYN-ACK
-	if err := s.establishConnection(); err != nil {
-		return err
-	}
-
-	// (Data transfer logic will go here in the next chapter)
-	fmt.Println("Connection established!")
-
-	// 2. Send FIN and wait for FIN-ACK
-	if err := s.closeConnection(); err != nil {
-		return err
-	}
-
-	fmt.Println("Connection closed.")
-	return nil
-}
-
-func (s *Sender) establishConnection() error {
-	s.changeState(urp.StateSYNSENT)
-	synSeg := urp.NewSegment(s.nextSeqNum, 0, urp.FlagSYN, nil)
-	
-	// Simple retry logic for the handshake
-	for i := 0; i < 3; i++ { // Try 3 times
-		s.sendSegment(synSeg, true)
-		
-		ack, err := s.waitForAck(2 * time.Second) // 2-second timeout
-		if err == nil && ack.HasFlag(urp.FlagSYN) && ack.HasFlag(urp.FlagACK) {
-			s.sendBase = ack.AckNum
-			s.nextSeqNum = ack.AckNum
-			s.changeState(urp.StateESTABLISHED)
-			return nil
-		}
-	}
-	return fmt.Errorf("handshake failed: no SYN-ACK received")
-}
-
-func (s *Sender) closeConnection() error {
-	s.changeState(urp.StateFINSENT)
-	finSeg := urp.NewSegment(s.nextSeqNum, 0, urp.FlagFIN, nil)
-
-	// Simple retry logic for teardown
-	for i := 0; i < 3; i++ {
-		s.sendSegment(finSeg, true)
-
-		ack, err := s.waitForAck(2 * time.Second)
-		if err == nil && ack.HasFlag(urp.FlagACK) {
-			s.changeState(urp.StateCLOSED)
-			return nil
-		}
-	}
-	return fmt.Errorf("teardown failed: no FIN-ACK received")
-}
-
-// (Helper functions like sendSegment, waitForAck, changeState would also be here)
-```
-
-**File 2: `internal/protocol/receiver.go` (Initial Version)**
-This file will manage the receiver's state.
-
-```go
-package protocol
-
-import (
-	"urp-go/internal/logger"
-	"urp-go/internal/plc"
-	"urp-go/internal/urp"
-	"fmt"
-	"net"
-	"time"
-)
-
-// Receiver implements the receiver-side URP protocol
-type Receiver struct {
-	// ... (fields like conn, logger, plc)
-	state       int
-	expectedSeq uint16
-	// ...
-}
-
-// Listen is the main loop
-func (r *Receiver) Listen() error {
-	for {
-		seg, _, err := r.receiveSegment() // Simplified receive logic
-		if err != nil {
-			continue
-		}
-
-		switch r.state {
-		case urp.StateLISTEN:
-			if seg.HasFlag(urp.FlagSYN) {
-				r.changeState(urp.StateESTABLISHED) // Simplified state change for now
-				r.expectedSeq = seg.SeqNum + 1
-				
-				// Send SYN-ACK
-				ackSeg := urp.NewSegment(0, r.expectedSeq, urp.FlagSYN|urp.FlagACK, nil)
-				r.sendAck(ackSeg)
-			}
-		case urp.StateESTABLISHED:
-			if seg.HasFlag(urp.FlagFIN) {
-				r.changeState(urp.StateTIMEWAIT)
-				
-				// Send FIN-ACK
-				ackSeg := urp.NewSegment(0, seg.SeqNum+1, urp.FlagACK, nil)
-				r.sendAck(ackSeg)
-
-				// In a real implementation, we'd wait here before closing.
-				// For now, we'll just exit.
-				return nil 
-			}
-			// (Data handling logic will go here)
-		}
-	}
-}
-
-// (Helper functions like receiveSegment, sendAck, changeState would also be here)
-```
-
-You have now built the logic to open and close a connection reliably. The next step is to send data within that connection.
+You have now built the logic to open and close a connection reliably. The next step is to send data within that connection. For a complete reference, you can examine the Go implementation in the `internal/protocol/` directory.
 
 **[Previous Chapter: Core Data Structures](./../01-core-data-structures/README.md)** | **[Next Chapter: Stop-and-Wait Transfer](./../03-stop-and-wait/README.md)**

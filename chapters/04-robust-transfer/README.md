@@ -61,88 +61,19 @@ Similarly, the receiver's policy of **silently discarding corrupt packets** is a
 
 ---
 
-### 5. Create (The "Implementation")
+### 5. Create (Your Implementation)
 
 **Coding Workshop:**
 
-Let's upgrade our `Sender` and `Receiver` to be robust.
+It's time to upgrade your `Sender` and `Receiver` to be robust.
 
-**File 1: `internal/protocol/sender.go` (Adding Timeouts)**
-We'll modify the `sendData` loop to use a timer and a `select` statement to handle both ACKs and timeouts.
-
-```go
-// Inside the Sender's sendData method...
-func (s *Sender) sendData(data []byte) error {
-	offset := 0
-	for offset < len(data) {
-		// ... (segment creation logic is the same)
-		seg := urp.NewSegment(s.nextSeqNum, 0, 0, payload)
-
-	RETRY_LOOP:
-		for i := 0; i < 5; i++ { // Try sending each segment up to 5 times
-			s.sendSegment(seg, true)
-
-			// Use a select statement to wait for ACK or Timeout
-			select {
-			case ack := <-s.ackChan:
-				if ack.AckNum == s.nextSeqNum+uint16(len(payload)) {
-					s.nextSeqNum = ack.AckNum
-					offset = end
-					break RETRY_LOOP // Success, move to next segment
-				}
-				// else, it's a duplicate/old ACK, loop and wait for the correct one
-			case <-time.After(s.rto):
-				s.logger.LogTimeout(s.nextSeqNum)
-				// Loop will continue to the next retry attempt
-			}
-		}
-
-		if offset != end {
-			return fmt.Errorf("failed to send segment %d after multiple retries", s.nextSeqNum)
-		}
-	}
-	return nil
-}
-```
-
-**File 2: `internal/protocol/receiver.go` (Adding Validation)**
-We'll add the validation and duplicate checks at the beginning of our `Listen` loop.
-
-```go
-// Inside the Receiver's Listen loop...
-func (r *Receiver) Listen() error {
-	for {
-		seg, _, err := r.receiveSegment()
-		if err != nil {
-			continue
-		}
-
-		// 1. Validate Checksum FIRST
-		if !seg.IsValid() {
-			r.logger.LogCorrupt(seg.SeqNum)
-			continue // Silently discard
-		}
-
-		// (Log the valid received segment)
-		r.logger.LogSegment(logger.EventReceive, ...)
-
-		// 2. Handle Duplicates in ESTABLISHED state
-		if r.state == urp.StateESTABLISHED && len(seg.Payload) > 0 {
-			if seg.SeqNum < r.expectedSeq {
-				// This is a duplicate of old data. Resend ACK.
-				ackSeg := urp.NewSegment(0, r.expectedSeq, urp.FlagACK, nil)
-				r.sendAck(ackSeg)
-				continue // Don't process further
-			}
-		}
-
-		// (The rest of the state machine logic follows)
-		switch r.state {
-		// ...
-		}
-	}
-}
-```
+1.  **Update your Sender's data-sending loop.** It must now handle timeouts.
+    *   After sending a segment, start a timer for the specified RTO.
+    *   The sender must wait for one of two events: the correct ACK arriving or the timer expiring.
+    *   If the timer expires, the sender should retransmit the *same* segment and restart the timer. It's wise to include a retry limit to prevent infinite loops.
+2.  **Update your Receiver's main loop.** It must now validate all incoming data.
+    *   For *every* packet that arrives, the very first step should be to validate its checksum. If the checksum is invalid, the packet must be **silently discarded**.
+    *   If the checksum is valid, then check if it's a duplicate (i.e., the sequence number is for data you've already processed). If it is, discard the data but **re-send the last ACK** to help the sender.
 
 Your protocol is now truly reliable for Stop-and-Wait! It can handle lost and corrupted packets. The final step is to make it efficient.
 

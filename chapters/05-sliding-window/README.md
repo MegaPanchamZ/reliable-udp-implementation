@@ -70,131 +70,22 @@ The key design decisions are:
 
 ---
 
-### 5. Create (The "Implementation")
+### 5. Create (Your Implementation)
 
 **Coding Workshop:**
 
-This is the final and most complex upgrade to our protocol logic.
+This is the final and most complex upgrade to our protocol logic. It requires a significant overhaul of both the Sender and Receiver.
 
-**File 1: `internal/protocol/sender.go` (Full Sliding Window)**
-We will overhaul the `sendData` loop and add logic to handle the window, buffer, and fast retransmit.
-
-```go
-// Inside the Sender struct...
-type Sender struct {
-    // ...
-    window      map[uint16]*urp.URPSegment // Retransmission buffer
-    timer       *time.Timer
-    timerActive bool
-    dupACKCount map[uint16]int
-    // ...
-}
-
-func (s *Sender) sendData(data []byte) error {
-	offset := 0
-	for s.sendBase < uint16(len(data)) {
-		// 1. Fill the window
-		for s.getWindowSize() < s.maxWindow && offset < len(data) {
-			// ... (create segment logic)
-			seg := urp.NewSegment(s.nextSeqNum, 0, 0, payload)
-			s.window[s.nextSeqNum] = seg // Buffer for retransmission
-			s.sendSegment(seg, true)
-			s.nextSeqNum += uint16(len(payload))
-			offset = end
-
-			if !s.timerActive {
-				s.startTimer()
-			}
-		}
-
-		// 2. Wait for ACK or Timeout
-		select {
-		case ack := <-s.ackChan:
-			s.handleACK(ack)
-		case <-s.timer.C:
-			s.handleTimeout()
-		}
-	}
-	s.stopTimer()
-	return nil
-}
-
-func (s *Sender) handleACK(seg *urp.URPSegment) {
-	if seg.AckNum > s.sendBase { // A valid cumulative ACK
-		s.sendBase = seg.AckNum
-		// Clean buffer of ACKed segments
-		for seq := range s.window {
-			if seq < s.sendBase {
-				delete(s.window, seq)
-			}
-		}
-		s.dupACKCount = make(map[uint16]int) // Reset dup count
-		if len(s.window) > 0 {
-			s.startTimer() // Restart timer for new send_base
-		} else {
-			s.stopTimer()
-		}
-	} else { // Duplicate ACK
-		s.dupACKCount[seg.AckNum]++
-		if s.dupACKCount[seg.AckNum] >= 3 {
-			if toResend, ok := s.window[s.sendBase]; ok {
-				s.sendSegment(toResend, false) // Fast Retransmit!
-				s.logger.LogRetransmit(s.sendBase)
-				s.startTimer()
-			}
-			s.dupACKCount[seg.AckNum] = 0
-		}
-	}
-}
-
-func (s *Sender) handleTimeout() {
-    if toResend, ok := s.window[s.sendBase]; ok {
-        s.sendSegment(toResend, false)
-        s.logger.LogTimeout(s.sendBase)
-        s.startTimer()
-    }
-}
-```
-
-**File 2: `internal/protocol/receiver.go` (Adding Buffering)**
-We'll add the out-of-order buffer to the receiver.
-
-```go
-// Inside the Receiver struct...
-type Receiver struct {
-    // ...
-    buffer map[uint16]*urp.URPSegment // Out-of-order buffer
-    // ...
-}
-
-// In the ESTABLISHED state data handling...
-func (r *Receiver) handleDataSegment(seg *urp.URPSegment) error {
-	if seg.SeqNum == r.expectedSeq {
-		// Correct segment. Write to file.
-		r.outputFile.Write(seg.Payload)
-		r.expectedSeq += uint16(len(seg.Payload))
-
-		// Check buffer for contiguous segments that can now be written
-		for {
-			if bufferedSeg, ok := r.buffer[r.expectedSeq]; ok {
-				r.outputFile.Write(bufferedSeg.Payload)
-				r.expectedSeq += uint16(len(bufferedSeg.Payload))
-				delete(r.buffer, bufferedSeg.SeqNum)
-			} else {
-				break // No more contiguous segments
-			}
-		}
-	} else if seg.SeqNum > r.expectedSeq {
-		// Out-of-order segment. Buffer it.
-		r.buffer[seg.SeqNum] = seg
-	}
-
-	// Always send cumulative ACK for the next byte we need
-	ackSeg := urp.NewSegment(0, r.expectedSeq, urp.FlagACK, nil)
-	r.sendAck(ackSeg)
-	return nil
-}
-```
+1.  **Update your Sender:**
+    *   Implement a **retransmission buffer** (e.g., a dictionary or hash map) to store copies of segments that are in-flight.
+    *   Change the main data loop to continuously send new segments as long as the window is not full (`next_seq_num - send_base < max_win`).
+    *   Implement a **single timer** for the `send_base`. This timer should be reset whenever the `send_base` advances.
+    *   Add logic to handle **duplicate ACKs**. Keep a counter, and when it reaches 3, trigger a **Fast Retransmit** of the segment at `send_base`.
+2.  **Update your Receiver:**
+    *   Implement a **receive buffer** to store out-of-order segments.
+    *   When an in-order segment arrives, write its data to the file. Then, check the buffer for any contiguous segments that can now be written.
+    *   When an out-of-order segment arrives, add it to the buffer.
+    *   Ensure your ACK logic is always **cumulative**, sending an ACK for the `expected_seq_num`.
 
 Congratulations! You have now implemented a modern, high-performance, reliable transport protocol. The final step is to learn how to test it and verify its performance.
 
