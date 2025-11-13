@@ -1,9 +1,9 @@
 package plc
 
 import (
+	"math/rand"
 	"urp-go/internal/logger"
 	"urp-go/internal/urp"
-	"math/rand"
 )
 
 // Module implements Packet Loss and Corruption simulation
@@ -76,10 +76,13 @@ func (m *Module) ProcessOutgoingForward(data []byte, seg *urp.URPSegment) ([]byt
 // ProcessOutgoingReverse processes an outgoing reverse packet (receiver to sender, ACKs)
 // Returns the packet data and whether it should be sent
 func (m *Module) ProcessOutgoingReverse(data []byte, seg *urp.URPSegment) ([]byte, bool) {
+	// For ACK segments, SeqNum contains the acknowledgment number
+	ackNum := seg.SeqNum
+
 	// Check for drop first
 	if m.ShouldDropReverse() {
 		if m.logger != nil {
-			m.logger.LogDrop(seg.AckNum)
+			m.logger.LogDrop(ackNum)
 		}
 		return nil, false
 	}
@@ -90,7 +93,7 @@ func (m *Module) ProcessOutgoingReverse(data []byte, seg *urp.URPSegment) ([]byt
 		copy(corrupted, data)
 		urp.CorruptData(corrupted)
 		if m.logger != nil {
-			m.logger.LogCorrupt(seg.AckNum)
+			m.logger.LogCorrupt(ackNum)
 		}
 		return corrupted, true
 	}

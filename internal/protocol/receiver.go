@@ -1,13 +1,13 @@
 package protocol
 
 import (
-	"urp-go/internal/logger"
-	"urp-go/internal/plc"
-	"urp-go/internal/urp"
 	"fmt"
 	"net"
 	"os"
 	"time"
+	"urp-go/internal/logger"
+	"urp-go/internal/plc"
+	"urp-go/internal/urp"
 )
 
 // Receiver implements the receiver-side URP protocol with 4-state machine
@@ -108,8 +108,12 @@ func (r *Receiver) Listen() error {
 			}
 
 			// Log received segment
-			r.logger.LogSegment(logger.EventReceive, seg.SeqNum, seg.AckNum,
-				r.flagsToString(seg.Flags), len(seg.Payload))
+			ackNum := uint16(0)
+			if seg.HasFlag(urp.FlagACK) {
+				ackNum = seg.SeqNum
+			}
+			r.logger.LogSegment(logger.EventReceive, seg.SeqNum, ackNum,
+				r.flagsToString(uint8(seg.Flags>>13)), len(seg.Payload))
 
 			// Process segment based on state
 			if err := r.processSegment(seg); err != nil {
@@ -140,8 +144,8 @@ func (r *Receiver) handleListen(seg *urp.URPSegment) error {
 		r.changeState(urp.StateSYNRCVD)
 		r.expectedSeq = seg.SeqNum + 1
 
-		// Send SYN-ACK
-		ackSeg := urp.NewSegment(0, r.expectedSeq, urp.FlagSYN|urp.FlagACK, nil)
+		// Send ACK - SeqNum field contains the acknowledgment number
+		ackSeg := urp.NewSegment(r.expectedSeq, urp.FlagACK, nil)
 		return r.sendACK(ackSeg)
 	}
 	return nil
@@ -169,8 +173,8 @@ func (r *Receiver) handleEstablished(seg *urp.URPSegment) error {
 	if seg.HasFlag(urp.FlagFIN) {
 		r.changeState(urp.StateTIMEWAIT)
 
-		// Send FIN-ACK
-		ackSeg := urp.NewSegment(0, seg.SeqNum+1, urp.FlagACK, nil)
+		// Send ACK for FIN - SeqNum field contains the acknowledgment number
+		ackSeg := urp.NewSegment(seg.SeqNum+1, urp.FlagACK, nil)
 		r.sendACK(ackSeg)
 
 		// Start TIME_WAIT timer
@@ -194,7 +198,7 @@ func (r *Receiver) handleEstablished(seg *urp.URPSegment) error {
 func (r *Receiver) handleTimeWait(seg *urp.URPSegment) error {
 	// In TIME_WAIT, just acknowledge any retransmitted FINs
 	if seg.HasFlag(urp.FlagFIN) {
-		ackSeg := urp.NewSegment(0, seg.SeqNum+1, urp.FlagACK, nil)
+		ackSeg := urp.NewSegment(seg.SeqNum+1, urp.FlagACK, nil)
 		return r.sendACK(ackSeg)
 	}
 	return nil
@@ -228,7 +232,8 @@ func (r *Receiver) handleDataSegment(seg *urp.URPSegment) error {
 	// If seg.SeqNum < r.expectedSeq, it's a duplicate - just acknowledge
 
 	// Always send ACK with the next expected sequence number
-	ackSeg := urp.NewSegment(0, r.expectedSeq, urp.FlagACK, nil)
+	// For ACK segments, SeqNum field contains the acknowledgment number
+	ackSeg := urp.NewSegment(r.expectedSeq, urp.FlagACK, nil)
 	return r.sendACK(ackSeg)
 }
 
@@ -255,8 +260,13 @@ func (r *Receiver) sendACK(seg *urp.URPSegment) error {
 		return err
 	}
 
-	r.logger.LogSegment(logger.EventSend, seg.SeqNum, seg.AckNum,
-		r.flagsToString(seg.Flags), len(seg.Payload))
+	// For ACK segments, SeqNum is the acknowledgment number
+	ackNum := uint16(0)
+	if seg.HasFlag(urp.FlagACK) {
+		ackNum = seg.SeqNum
+	}
+	r.logger.LogSegment(logger.EventSend, seg.SeqNum, ackNum,
+		r.flagsToString(uint8(seg.Flags>>13)), len(seg.Payload))
 
 	return nil
 }
