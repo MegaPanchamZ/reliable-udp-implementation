@@ -101,23 +101,31 @@ func (s *Sender) receiveACKs() {
 				continue // Timeout or other error
 			}
 
+			// Process through PLC (reverse direction)
+			processedData, status, shouldDeliver := s.plc.ProcessIncomingReverse(buffer[:n])
+
+			// Log the received segment (even if dropped or corrupted)
 			seg, err := urp.Unpack(buffer[:n])
+			if err == nil {
+				segType := urp.GetSegmentType(seg)
+				s.logger.LogSegment(logger.EventReceive, status, segType, seg.SeqNum, len(seg.Payload))
+			}
+
+			if !shouldDeliver {
+				continue // Dropped by PLC
+			}
+
+			// Unpack the processed data
+			seg, err = urp.Unpack(processedData)
 			if err != nil {
 				continue
 			}
 
 			// Validate checksum
 			if !seg.IsValid() {
+				s.logger.IncrementStat("corrupt_acks_discarded", 1)
 				continue // Drop corrupted packet
 			}
-
-			// For logging, ACK number is the SeqNum for ACK segments
-			ackNum := uint16(0)
-			if seg.HasFlag(urp.FlagACK) {
-				ackNum = seg.SeqNum
-			}
-			s.logger.LogSegment(logger.EventReceive, seg.SeqNum, ackNum,
-				s.flagsToString(uint8(seg.Flags>>13)), len(seg.Payload))
 
 			s.ackChan <- seg
 		}
@@ -152,6 +160,9 @@ func (s *Sender) SendFile(data []byte) error {
 		return err
 	}
 
+	// Write statistics to log file
+	s.logger.WriteSenderStatistics()
+
 	return nil
 }
 
@@ -160,6 +171,7 @@ func (s *Sender) sendSYN() error {
 	s.changeState(urp.StateSYNSENT)
 
 	seg := urp.NewSegment(s.nextSeqNum, urp.FlagSYN, nil)
+	s.logger.IncrementStat("original_segments_sent", 1)
 	return s.sendSegment(seg, true)
 }
 
@@ -208,6 +220,11 @@ func (s *Sender) sendData(data []byte) error {
 		seg := urp.NewSegment(s.nextSeqNum, 0, payload) // 0 flags = DATA segment
 
 		s.window[s.nextSeqNum] = seg
+
+		// Track original data statistics
+		s.logger.IncrementStat("original_data_sent", len(payload))
+		s.logger.IncrementStat("original_segments_sent", 1)
+
 		s.sendSegment(seg, true)
 
 		s.nextSeqNum += uint16(len(payload))
@@ -234,9 +251,10 @@ func (s *Sender) sendData(data []byte) error {
 
 // sendFIN sends the FIN segment
 func (s *Sender) sendFIN() error {
-	s.changeState(urp.StateFINSENT)
+	s.changeState(urp.StateFINWAIT)
 
 	seg := urp.NewSegment(s.nextSeqNum, urp.FlagFIN, nil)
+	s.logger.IncrementStat("original_segments_sent", 1)
 	return s.sendSegment(seg, true)
 }
 
@@ -248,7 +266,7 @@ func (s *Sender) waitForFINACK() error {
 		select {
 		case seg := <-s.ackChan:
 			if seg.HasFlag(urp.FlagACK) {
-				s.changeState(urp.StateFINACKED)
+				s.changeState(urp.StateCLOSED)
 				return nil
 			}
 		case <-timeout:
@@ -258,26 +276,28 @@ func (s *Sender) waitForFINACK() error {
 }
 
 // sendSegment sends a segment through the PLC module
-func (s *Sender) sendSegment(seg *urp.URPSegment, logSend bool) error {
+func (s *Sender) sendSegment(seg *urp.URPSegment, trackStats bool) error {
 	data := seg.Pack()
 
 	// Process through PLC
-	processedData, shouldSend := s.plc.ProcessOutgoingForward(data, seg)
+	processedData, status, shouldSend := s.plc.ProcessOutgoingForward(data, seg)
+
+	// Always log the segment (even if dropped or corrupted)
+	segType := urp.GetSegmentType(seg)
+	s.logger.LogSegment(logger.EventSend, status, segType, seg.SeqNum, len(seg.Payload))
+
+	// Track statistics
+	if trackStats {
+		if segType == logger.SegmentDATA {
+			s.logger.IncrementStat("total_data_sent", len(seg.Payload))
+		}
+		s.logger.IncrementStat("total_segments_sent", 1)
+	}
 
 	if shouldSend && processedData != nil {
 		_, err := s.conn.WriteToUDP(processedData, s.remoteAddr)
 		if err != nil {
 			return err
-		}
-
-		if logSend {
-			// For logging, ACK number is 0 for non-ACK segments
-			ackNum := uint16(0)
-			if seg.HasFlag(urp.FlagACK) {
-				ackNum = seg.SeqNum // ACK segments use SeqNum as ack number
-			}
-			s.logger.LogSegment(logger.EventSend, seg.SeqNum, ackNum,
-				s.flagsToString(uint8(seg.Flags>>13)), len(seg.Payload))
 		}
 	}
 
@@ -296,11 +316,12 @@ func (s *Sender) handleACK(seg *urp.URPSegment) {
 	// Check for duplicate ACK
 	if ackNum == s.sendBase {
 		s.dupACKCount[ackNum]++
+		s.logger.IncrementStat("duplicate_acks_received", 1)
 
 		// Fast retransmit on 3 duplicate ACKs
 		if s.dupACKCount[ackNum] >= 3 {
 			if seg, exists := s.window[s.sendBase]; exists {
-				s.logger.LogRetransmit(s.sendBase)
+				s.logger.IncrementStat("fast_retransmits", 1)
 				s.sendSegment(seg, false)
 			}
 			s.dupACKCount[ackNum] = 0
@@ -328,11 +349,10 @@ func (s *Sender) handleACK(seg *urp.URPSegment) {
 
 // handleTimeout handles retransmission timeout
 func (s *Sender) handleTimeout() {
-	s.logger.LogTimeout(s.sendBase)
+	s.logger.IncrementStat("timeout_retransmits", 1)
 
 	// Retransmit the oldest unacknowledged segment
 	if seg, exists := s.window[s.sendBase]; exists {
-		s.logger.LogRetransmit(s.sendBase)
 		s.sendSegment(seg, false)
 	}
 
@@ -373,11 +393,9 @@ func (s *Sender) stopTimer() {
 	s.timerActive = false
 }
 
-// changeState changes the sender state and logs it
+// changeState changes the sender state
 func (s *Sender) changeState(newState int) {
-	oldState := s.state
 	s.state = newState
-	s.logger.LogStateChange(s.stateToString(oldState), s.stateToString(newState))
 }
 
 // stateToString converts state to string
@@ -389,10 +407,10 @@ func (s *Sender) stateToString(state int) string {
 		return "SYN_SENT"
 	case urp.StateESTABLISHED:
 		return "ESTABLISHED"
-	case urp.StateFINSENT:
-		return "FIN_SENT"
-	case urp.StateFINACKED:
-		return "FIN_ACKED"
+	case urp.StateCLOSING:
+		return "CLOSING"
+	case urp.StateFINWAIT:
+		return "FIN_WAIT"
 	default:
 		return "UNKNOWN"
 	}

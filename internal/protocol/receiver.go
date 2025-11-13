@@ -82,6 +82,8 @@ func (r *Receiver) Listen() error {
 	for {
 		select {
 		case <-r.done:
+			// Write statistics before closing
+			r.logger.WriteReceiverStatistics()
 			return nil
 		default:
 			// Read incoming segment
@@ -95,25 +97,28 @@ func (r *Receiver) Listen() error {
 				r.senderAddr = addr
 			}
 
-			// Unpack segment
+			// Track total segments received
+			r.logger.IncrementStat("total_segments_received", 1)
+
+			// Unpack segment for logging
 			seg, err := urp.Unpack(buffer[:n])
 			if err != nil {
 				continue
 			}
 
+			// Log received segment (always log, even if corrupted)
+			segType := urp.GetSegmentType(seg)
+
 			// Validate checksum
 			if !seg.IsValid() {
-				// Drop corrupted packet
+				// Log as corrupted
+				r.logger.LogSegment(logger.EventReceive, logger.StatusCor, segType, seg.SeqNum, len(seg.Payload))
+				r.logger.IncrementStat("corrupt_segments_discarded", 1)
 				continue
 			}
 
-			// Log received segment
-			ackNum := uint16(0)
-			if seg.HasFlag(urp.FlagACK) {
-				ackNum = seg.SeqNum
-			}
-			r.logger.LogSegment(logger.EventReceive, seg.SeqNum, ackNum,
-				r.flagsToString(uint8(seg.Flags>>13)), len(seg.Payload))
+			// Log as OK
+			r.logger.LogSegment(logger.EventReceive, logger.StatusOK, segType, seg.SeqNum, len(seg.Payload))
 
 			// Process segment based on state
 			if err := r.processSegment(seg); err != nil {
@@ -173,9 +178,16 @@ func (r *Receiver) handleEstablished(seg *urp.URPSegment) error {
 	if seg.HasFlag(urp.FlagFIN) {
 		r.changeState(urp.StateTIMEWAIT)
 
+		// Track original segment received
+		r.logger.IncrementStat("original_segments_received", 1)
+
 		// Send ACK for FIN - SeqNum field contains the acknowledgment number
 		ackSeg := urp.NewSegment(seg.SeqNum+1, urp.FlagACK, nil)
 		r.sendACK(ackSeg)
+
+		// Write statistics immediately before entering TIME_WAIT
+		r.logger.WriteReceiverStatistics()
+		r.logger.Flush()
 
 		// Start TIME_WAIT timer
 		go func() {
@@ -198,6 +210,10 @@ func (r *Receiver) handleEstablished(seg *urp.URPSegment) error {
 func (r *Receiver) handleTimeWait(seg *urp.URPSegment) error {
 	// In TIME_WAIT, just acknowledge any retransmitted FINs
 	if seg.HasFlag(urp.FlagFIN) {
+		// Track duplicate
+		r.logger.IncrementStat("duplicate_segments_received", 1)
+		r.logger.IncrementStat("duplicate_acks_sent", 1)
+
 		ackSeg := urp.NewSegment(seg.SeqNum+1, urp.FlagACK, nil)
 		return r.sendACK(ackSeg)
 	}
@@ -208,6 +224,11 @@ func (r *Receiver) handleTimeWait(seg *urp.URPSegment) error {
 func (r *Receiver) handleDataSegment(seg *urp.URPSegment) error {
 	// Check if this is the expected segment
 	if seg.SeqNum == r.expectedSeq {
+		// Track original data received
+		r.logger.IncrementStat("original_data_received", len(seg.Payload))
+		r.logger.IncrementStat("original_segments_received", 1)
+		r.logger.IncrementStat("total_data_received", len(seg.Payload))
+
 		// Write to file
 		if _, err := r.outputFile.Write(seg.Payload); err != nil {
 			return fmt.Errorf("failed to write to output file: %w", err)
@@ -218,6 +239,7 @@ func (r *Receiver) handleDataSegment(seg *urp.URPSegment) error {
 		// Check if any buffered segments can now be delivered
 		for {
 			if bufferedSeg, exists := r.buffer[r.expectedSeq]; exists {
+				r.logger.IncrementStat("total_data_received", len(bufferedSeg.Payload))
 				r.outputFile.Write(bufferedSeg.Payload)
 				r.expectedSeq += uint16(len(bufferedSeg.Payload))
 				delete(r.buffer, bufferedSeg.SeqNum)
@@ -228,8 +250,12 @@ func (r *Receiver) handleDataSegment(seg *urp.URPSegment) error {
 	} else if seg.SeqNum > r.expectedSeq {
 		// Out-of-order segment - buffer it
 		r.buffer[seg.SeqNum] = seg
+		r.logger.IncrementStat("total_data_received", len(seg.Payload))
+	} else {
+		// Duplicate segment
+		r.logger.IncrementStat("duplicate_segments_received", 1)
+		r.logger.IncrementStat("duplicate_acks_sent", 1)
 	}
-	// If seg.SeqNum < r.expectedSeq, it's a duplicate - just acknowledge
 
 	// Always send ACK with the next expected sequence number
 	// For ACK segments, SeqNum field contains the acknowledgment number
@@ -245,14 +271,28 @@ func (r *Receiver) sendACK(seg *urp.URPSegment) error {
 
 	data := seg.Pack()
 
-	// Apply PLC for reverse path (ACKs)
+	// Track ACK statistics
+	r.logger.IncrementStat("total_acks_sent", 1)
+
+	// Apply PLC for reverse path (ACKs) - note: receiver doesn't have PLC in spec
+	// But we keep it for compatibility with the test setup
+	status := logger.StatusOK
+	shouldSend := true
 	if r.plc != nil {
-		processedData, shouldSend := r.plc.ProcessOutgoingReverse(data, seg)
-		if !shouldSend {
-			// Packet dropped by PLC
-			return nil
+		var processedData []byte
+		processedData, status, shouldSend = r.plc.ProcessOutgoingReverse(data, seg)
+		if shouldSend {
+			data = processedData
 		}
-		data = processedData
+	}
+
+	// Log sent ACK (always log, even if dropped)
+	segType := urp.GetSegmentType(seg)
+	r.logger.LogSegment(logger.EventSend, status, segType, seg.SeqNum, len(seg.Payload))
+
+	if !shouldSend {
+		// Packet dropped by PLC
+		return nil
 	}
 
 	_, err := r.conn.WriteToUDP(data, r.senderAddr)
@@ -260,22 +300,12 @@ func (r *Receiver) sendACK(seg *urp.URPSegment) error {
 		return err
 	}
 
-	// For ACK segments, SeqNum is the acknowledgment number
-	ackNum := uint16(0)
-	if seg.HasFlag(urp.FlagACK) {
-		ackNum = seg.SeqNum
-	}
-	r.logger.LogSegment(logger.EventSend, seg.SeqNum, ackNum,
-		r.flagsToString(uint8(seg.Flags>>13)), len(seg.Payload))
-
 	return nil
 }
 
-// changeState changes the receiver state and logs it
+// changeState changes the receiver state
 func (r *Receiver) changeState(newState int) {
-	oldState := r.state
 	r.state = newState
-	r.logger.LogStateChange(r.stateToString(oldState), r.stateToString(newState))
 }
 
 // stateToString converts state to string

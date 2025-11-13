@@ -32,11 +32,21 @@ func ValidateChecksum(data []byte, checksum uint16) bool {
 	return computed == checksum
 }
 
-// CorruptData intentionally corrupts a single byte in the data
-// Used by the PLC module to simulate corruption
-func CorruptData(data []byte) {
-	if len(data) > 0 {
-		// Flip a bit in the first byte
-		data[0] ^= 0x01
+// CorruptData intentionally corrupts a single byte in the data per spec:
+// "select a random byte in the segment (excluding the first four header bytes)
+// and flip a single bit within that byte"
+func CorruptData(data []byte, rng interface{ Intn(int) int }) {
+	// Must exclude first 4 header bytes (SeqNum + first 2 bytes of Flags field)
+	if len(data) <= 4 {
+		return // Cannot corrupt if only header
 	}
+
+	// Select random byte from position 4 onwards
+	byteIndex := 4 + rng.Intn(len(data)-4)
+
+	// Select random bit (0-7) to flip
+	bitIndex := rng.Intn(8)
+
+	// Flip the selected bit
+	data[byteIndex] ^= (1 << bitIndex)
 }

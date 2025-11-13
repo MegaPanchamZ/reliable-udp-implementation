@@ -49,54 +49,101 @@ func (m *Module) ShouldCorruptReverse() bool {
 }
 
 // ProcessOutgoingForward processes an outgoing forward packet (sender to receiver)
-// Returns the packet data and whether it should be sent
-func (m *Module) ProcessOutgoingForward(data []byte, seg *urp.URPSegment) ([]byte, bool) {
+// Returns the packet data, status, and whether it should be sent
+func (m *Module) ProcessOutgoingForward(data []byte, seg *urp.URPSegment) ([]byte, logger.StatusType, bool) {
 	// Check for drop first
 	if m.ShouldDropForward() {
 		if m.logger != nil {
-			m.logger.LogDrop(seg.SeqNum)
+			m.logger.IncrementStat("plc_forward_dropped", 1)
 		}
-		return nil, false
+		return nil, logger.StatusDrop, false
 	}
 
 	// Check for corruption
 	if m.ShouldCorruptForward() {
 		corrupted := make([]byte, len(data))
 		copy(corrupted, data)
-		urp.CorruptData(corrupted)
+		urp.CorruptData(corrupted, m.rng)
 		if m.logger != nil {
-			m.logger.LogCorrupt(seg.SeqNum)
+			m.logger.IncrementStat("plc_forward_corrupted", 1)
 		}
-		return corrupted, true
+		return corrupted, logger.StatusCor, true
 	}
 
-	return data, true
+	return data, logger.StatusOK, true
 }
 
 // ProcessOutgoingReverse processes an outgoing reverse packet (receiver to sender, ACKs)
-// Returns the packet data and whether it should be sent
-func (m *Module) ProcessOutgoingReverse(data []byte, seg *urp.URPSegment) ([]byte, bool) {
-	// For ACK segments, SeqNum contains the acknowledgment number
-	ackNum := seg.SeqNum
-
+// Returns the packet data, status, and whether it should be sent
+func (m *Module) ProcessOutgoingReverse(data []byte, seg *urp.URPSegment) ([]byte, logger.StatusType, bool) {
 	// Check for drop first
 	if m.ShouldDropReverse() {
 		if m.logger != nil {
-			m.logger.LogDrop(ackNum)
+			m.logger.IncrementStat("plc_reverse_dropped", 1)
 		}
-		return nil, false
+		return nil, logger.StatusDrop, false
 	}
 
 	// Check for corruption
 	if m.ShouldCorruptReverse() {
 		corrupted := make([]byte, len(data))
 		copy(corrupted, data)
-		urp.CorruptData(corrupted)
+		urp.CorruptData(corrupted, m.rng)
 		if m.logger != nil {
-			m.logger.LogCorrupt(ackNum)
+			m.logger.IncrementStat("plc_reverse_corrupted", 1)
 		}
-		return corrupted, true
+		return corrupted, logger.StatusCor, true
 	}
 
-	return data, true
+	return data, logger.StatusOK, true
+}
+
+// ProcessIncomingReverse processes an incoming reverse packet (ACKs from receiver)
+// Returns the packet data, status, and whether it should be delivered
+func (m *Module) ProcessIncomingReverse(data []byte) ([]byte, logger.StatusType, bool) {
+	// Check for drop first
+	if m.ShouldDropReverse() {
+		if m.logger != nil {
+			m.logger.IncrementStat("plc_reverse_dropped", 1)
+		}
+		return nil, logger.StatusDrop, false
+	}
+
+	// Check for corruption
+	if m.ShouldCorruptReverse() {
+		corrupted := make([]byte, len(data))
+		copy(corrupted, data)
+		urp.CorruptData(corrupted, m.rng)
+		if m.logger != nil {
+			m.logger.IncrementStat("plc_reverse_corrupted", 1)
+		}
+		return corrupted, logger.StatusCor, true
+	}
+
+	return data, logger.StatusOK, true
+}
+
+// ProcessIncomingForward processes an incoming forward packet (DATA/SYN/FIN from sender)
+// Returns the packet data, status, and whether it should be delivered
+func (m *Module) ProcessIncomingForward(data []byte) ([]byte, logger.StatusType, bool) {
+	// Check for drop first
+	if m.ShouldDropForward() {
+		if m.logger != nil {
+			m.logger.IncrementStat("plc_forward_dropped", 1)
+		}
+		return nil, logger.StatusDrop, false
+	}
+
+	// Check for corruption
+	if m.ShouldCorruptForward() {
+		corrupted := make([]byte, len(data))
+		copy(corrupted, data)
+		urp.CorruptData(corrupted, m.rng)
+		if m.logger != nil {
+			m.logger.IncrementStat("plc_forward_corrupted", 1)
+		}
+		return corrupted, logger.StatusCor, true
+	}
+
+	return data, logger.StatusOK, true
 }

@@ -15,13 +15,13 @@ const (
 	FlagFIN = 1 << 2 // 0x04
 )
 
-// Sender states
+// Sender states per spec
 const (
 	StateCLOSED = iota
 	StateSYNSENT
 	StateESTABLISHED
-	StateFINSENT
-	StateFINACKED
+	StateCLOSING // Spec name: CLOSING (all data sent, waiting for ACKs)
+	StateFINWAIT // Spec name: FIN_WAIT (FIN sent, waiting for ACK)
 )
 
 // Receiver states
